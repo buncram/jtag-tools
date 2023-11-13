@@ -102,7 +102,7 @@ def phy_sync(tdi, tms):
 
     if compat:
         tdo = GPIO.input(TDO_pin) # grab the TDO value before the clock changes
-    
+
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (1, tdi, tms) )
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
@@ -178,7 +178,7 @@ def decode_ir(ir):
         return ''  # unknown just leave blank for now
 
 def debug_spew(cur_leg):
-    
+
     if not((cur_leg[0] == JtagLeg.DRC) or (cur_leg[0] == JtagLeg.DRS)):
         logging.debug("start: %s (%s) / %s", str(cur_leg), str(decode_ir(int(cur_leg[1],2))), str(cur_leg[2]) )
     else:
@@ -257,7 +257,7 @@ def jtag_step():
             else:
                 phy_sync(0, 0)
             state = JtagState.RUN_TEST_IDLE
-            
+
     elif state == JtagState.SELECT_SCAN:
         phy_sync(0, 0)
         state = JtagState.CAPTURE
@@ -327,7 +327,7 @@ def jtag_step():
                 tdo_vect = '0' + tdo_vect
             state = JtagState.EXIT1
             logging.debug('leaving config')
-            
+
         else:
             if len(cur_leg[1]) > 1:
                 if cur_leg[1][-1] == '1':
@@ -361,17 +361,17 @@ def jtag_step():
            state = JtagState.PAUSE
            do_pause = False
         else:
-           phy_sync(0, 1)        
+           phy_sync(0, 1)
            state = JtagState.UPDATE
 
     elif state == JtagState.PAUSE:
         logging.debug("pause")
         # we could put more pauses in here but we haven't seen this needed yet
-        phy_sync(0, 1)        
+        phy_sync(0, 1)
         state = JtagState.EXIT2
 
     elif state == JtagState.EXIT2:
-        phy_sync(0, 1)        
+        phy_sync(0, 1)
         state = JtagState.UPDATE
 
     elif state == JtagState.UPDATE:
@@ -391,16 +391,16 @@ def jtag_step():
                     logging.debug("IR bypassing wait state")
                 if jtag_legs[0][0] == JtagLeg.IRP:
                     do_pause = True
-                    
+
                 cur_leg = jtag_legs.pop(0)
                 debug_spew(cur_leg)
                 phy_sync(0,1)
                 state = JtagState.SELECT_SCAN
             else:
-                phy_sync(0, 0)        
+                phy_sync(0, 0)
                 state = JtagState.RUN_TEST_IDLE
         else:
-            phy_sync(0, 0)        
+            phy_sync(0, 0)
             state = JtagState.RUN_TEST_IDLE
 
     else:
@@ -444,7 +444,7 @@ def do_spi_bitstream(ifile, jtagspi='xc7s50', address=0, verify=True, do_reset=F
        jtag_legs.append([JtagLeg.IR, '000010', 'user1'])
        while len(jtag_legs):
             jtag_next()
-            
+
        progress = ProgressBar(min_value=0, max_value=1000).start()
        for i in range(1000):
            progress.update(i)
@@ -452,8 +452,8 @@ def do_spi_bitstream(ifile, jtagspi='xc7s50', address=0, verify=True, do_reset=F
            id = virtualspi.exchange(jedec_cmd, 3)
        progress.finish()
        return
-       
-    
+
+
     # first load the jtagspi bitstream
     jtagspi_bitstream = 'jtagspi/bscan_spi_{}.bit'.format(jtagspi)
     do_bitstream(jtagspi_bitstream, key=key)
@@ -485,11 +485,11 @@ def do_spi_bitstream(ifile, jtagspi='xc7s50', address=0, verify=True, do_reset=F
         jtag_legs.append([JtagLeg.IR, '000010', 'user1'])
         while len(jtag_legs):
             jtag_next()
-        
+
         virtualspi = SpiPort(1)
         jedec_cmd = bytes((0x9f,))
         id = virtualspi.exchange(jedec_cmd, 3)
-    
+
         virtualflash = Mx66umFlashDevice(virtualspi, id)
         #print("before erase:")
         #readback = virtualflash.read(0, 256)
@@ -502,14 +502,14 @@ def do_spi_bitstream(ifile, jtagspi='xc7s50', address=0, verify=True, do_reset=F
             erase_size_in_sectors += 1
         print("Using erase block size of {} bytes, erasing {} blocks from 0x{:08x} to 0x{:08x} (rounded up from 0x{:08x})".format(erase_size, erase_size_in_sectors, address, address + erase_size_in_sectors * erase_size, address + len(program_data)))
 
-        virtualflash.erase(address, erase_size_in_sectors * erase_size) 
+        virtualflash.erase(address, erase_size_in_sectors * erase_size)
         #print("after erase:")
         #readback = virtualflash.read(0, 256)
         #print(readback.hex())
-       
+
         #input("hit enter to continue")
         virtualflash.write(address, program_data)
-        
+
         from progressbar.bar import ProgressBar
         if verify == True:
             print("Reading back data for verification...")
@@ -540,7 +540,7 @@ def do_spi_bitstream(ifile, jtagspi='xc7s50', address=0, verify=True, do_reset=F
                         break
 
                 progress.finish()
-                
+
             if failures == 0:
                 print("Programming verification succeeded")
 
@@ -575,13 +575,13 @@ def read_spi_bitstream(ofile, jtagspi='xc7s50', address=0, read_len=0x280000, do
     id = virtualspi.exchange(jedec_cmd, 3)
 
     virtualflash = Mx66umFlashDevice(virtualspi, id)
-       
+
     with open(ofile, "wb") as f:
         print("Reading back data...")
         read_data = virtualflash.read(address, read_len)
 
         f.write(read_data)
-        
+
         print("Read concluded")
 
 def erase(jtagspi='xc7s50', address=0, erase_len=0x280000, do_reset=False, key=None):
@@ -618,11 +618,11 @@ def erase(jtagspi='xc7s50', address=0, erase_len=0x280000, do_reset=False, key=N
         erase_size_in_sectors += 1
     print("Using erase block size of {} bytes, erasing {} blocks from 0x{:08x} to 0x{:08x} (rounded up from 0x{:08x})".format(erase_size, erase_size_in_sectors, address, address + erase_size_in_sectors * erase_size, address + erase_len))
 
-    virtualflash.erase(address, erase_size_in_sectors * erase_size) 
-    
+    virtualflash.erase(address, erase_size_in_sectors * erase_size)
+
     print("Erase concluded")
-        
-        
+
+
 def do_bitstream(ifile, key=None):
     global jtag_legs
 
@@ -684,14 +684,14 @@ def bitflip(data_block, bitwidth=32):
 def do_wbstar(ifile, offset):
     global readdata
     global use_key, nky_key, nky_iv, nky_hmac, use_fuzzer
-    
+
     if offset < 1:
         print("Offset {} is too small. Must be greater than 0.".format(offset))
         exit(0)
-        
+
     with open(ifile, "rb") as f:
         binfile = bytearray(f.read())
-    
+
         # search for structure
         # 0x3001_6004 -> specifies the CBC key
         # 4 words of CBC IV
@@ -722,7 +722,7 @@ def do_wbstar(ifile, offset):
         binfile[position+1] = 0x0
         binfile[position+2] = 0x0
         binfile[position+3] = 0x98
-        
+
         cipherstart = position + 4
 
         # we don't use this, but it's neat to see.
@@ -869,7 +869,7 @@ def do_wbstar(ifile, offset):
                            print(" ")
                            with open("check-ro.bin".format(word_index), "wb") as check:
                               check.write(ro_area)
-                              
+
                        jtag_legs.append([JtagLeg.IR, '001001', 'idcode'])
                        jtag_legs.append([JtagLeg.DR, '00000000000000000000000000000000', ' '])
                        #jtag_legs.append([JtagLeg.IR, '001011', 'jprogram'])
@@ -901,7 +901,7 @@ def do_wbstar(ifile, offset):
                   #readout_cmd = 0xffffffffaa9955662000000030020001e000000028020001300080010000000f20000000
                   ### command as from Ender paper
                   # readout_cmd = 0xffffffffffffffffffffffffffffffffffffffffffffffff000000bb11220044ffffffffffffffffaa9955662000000030008001000000042000000020000000200000002802000120000000200000002000000020000000
-                  
+
                   # now perform the readout
                   jtag_legs.append([JtagLeg.RS, '0', 'reset'])
                   jtag_legs.append([JtagLeg.IRD, '000101', 'cfg_in'])
@@ -923,10 +923,9 @@ def do_wbstar(ifile, offset):
 
         print('AES block {} is 0x{:08x}{:08x}{:08x}{:08x}'.format(offset, block[0], block[1], block[2], block[3]))
 
-# python sux
 def auto_int(x):
     return int(x, 0)
-        
+
 def main():
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
     global jtag_legs, jtag_results
@@ -935,7 +934,7 @@ def main():
     global use_key, nky_key, nky_iv, nky_hmac, use_fuzzer
 
     GPIO.setwarnings(False)
-    
+
     parser = argparse.ArgumentParser(description="Drive JTAG via Rpi GPIO")
     parser.add_argument(
         "-f", "--file", required=True, help="file containing jtag command list or bitstream", type=str
@@ -1073,7 +1072,7 @@ def main():
         print('Decrypting AES blocks from file: ', ifile)
     else:
         print('Executing .jtg command file:', ifile)
-        
+
     GPIO.setmode(GPIO.BCM)
 
     GPIO.setup((TCK_pin, TMS_pin, TDI_pin), GPIO.OUT)
@@ -1089,7 +1088,7 @@ def main():
     if args.erase == True:
         erase('xc7s50', args.address, args.erase_len, args.reset_prog, args.key)
         exit(0)
-        
+
     if args.read == True:
         read_spi_bitstream(args.file, 'xc7s50', args.read_addr, args.read_len, args.reset_prog, args.key)
         exit(0)
@@ -1106,7 +1105,7 @@ def main():
         # do_spi_bitstream is responsible for executing its own jtag chain
         GPIO.cleanup()
         exit(0)
-        
+
     if args.bitstream:
         do_bitstream(ifile, key=args.key)
         if args.reset_prog:
@@ -1115,7 +1114,7 @@ def main():
            jtag_next()
         GPIO.cleanup()
         exit(0)
-        
+
 
     # CSV file format
     # chain, width, value:
@@ -1171,7 +1170,7 @@ def main():
                 if len(row) > 3:
                     jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), row[3]])
                 else:
-                    jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), ' '])            
+                    jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), ' '])
     # logging.debug(jtag_legs)
 
     if args.reset_prog:
@@ -1179,7 +1178,7 @@ def main():
     while len(jtag_legs):
         # time.sleep(0.002) # give 2 ms between each command
         jtag_next()
-        
+
 #        while len(jtag_results):
 #            result = jtag_result.pop()
             # printout happens in situ
@@ -1194,11 +1193,11 @@ def int_to_bytes(x: int) -> bytes:
     else:
         return bytes(1)  # a length 1 bytes with value of 0
 
-# testing temporary variables, delete when done 
+# testing temporary variables, delete when done
 memoized_exch = '100000000000000000000000000011111100111110000000000000000000000000'
 memoized_bytstr = bytes(memoized_exch[:-1], 'utf-8')
 memoized_temp = '0'*len(memoized_exch[:-1])
-memoized_retstr = bytes(memoized_temp, 'utf-8')                        
+memoized_retstr = bytes(memoized_temp, 'utf-8')
 
 class SpiPort:
     """SPI port
@@ -1257,14 +1256,14 @@ class SpiPort:
             4. a number of SPI clock cycles (corresponding to 3.) with CS_N asserted
             5. an arbitrary number of cycles (to shift MISO/TDO data through subsequent
                BYPASS registers)
-               
+
             Notes:
             * The JTAG2SPI DR is 1 bit long (due to different sampling edges of
               {MISO,MOSI}/{TDO,TDI}).
             * MOSI is TDI with half a cycle delay.
             * TDO is MISO with half a cycle delay.
             * CAPTURE-DR needs to be performed before SHIFT-DR on the BYPASSed TAPs in
-              JTAG chain to clear the BYPASS registers to 0.                       
+              JTAG chain to clear the BYPASS registers to 0.
         """
         #if len(out) > 0:
         #   print('out: ' + out.hex())
@@ -1273,12 +1272,12 @@ class SpiPort:
                         int_to_binstr(int.from_bytes(out, byteorder='big')) + \
                         '0'*(readlen*8) + \
                         '0'
-        
+
         global ffi, ffistr, ffiret, maxbuf
         unroll = True
         if unroll:
             keepalive = []
-            
+
             phy_sync(0, 1)
             phy_sync(0, 0)
             phy_sync(0, 0)
@@ -1286,18 +1285,18 @@ class SpiPort:
             bytestr = bytes(exchange_data[:-1], 'utf-8')
             #tdo_temp = '0'*len(exchange_data[:-1]) # initialize space for tdo_vect
             #retstr = bytes(tdo_temp, 'utf-8')
-            
+
             #ffistr = ffi.new("char[]", bytestr)
-            #ffiret = ffi.new("char[]", retstr) 
+            #ffiret = ffi.new("char[]", retstr)
             #keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
             #keepalive.append(ffiret)
 
             # clear the ffi memory before using it
             ffi.memmove(ffistr, bytes(len(exchange_data) + 1), len(exchange_data) + 1)
             ffi.memmove(ffiret, bytes(len(exchange_data) + 1), len(exchange_data) + 1)
-            
+
             ffi.memmove(ffistr, bytestr, len(bytestr))
-            
+
             jtag_prog_rbk(ffistr, gpio_pointer, ffiret)
 
             tdo_vect = ffi.string(ffiret).decode('utf-8')
@@ -1311,12 +1310,12 @@ class SpiPort:
                 tdo_vect = '1' + tdo_vect
             else:
                 tdo_vect = '0' + tdo_vect
-                
+
             tdo_stash = tdo_vect
             #print("tdo_stash: " + tdo_stash)
-            phy_sync(0, 1)        
-            phy_sync(0, 0)        
-       
+            phy_sync(0, 1)
+            phy_sync(0, 0)
+
         else:
             jtag_legs.append([JtagLeg.DRS, exchange_data, 'exchange_data'])
             # extract the returned data here
