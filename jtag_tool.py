@@ -641,7 +641,7 @@ def main():
                         # parse the DR coming from chip to host, add it to the dr_vals tracker
                         dre_regex = re.compile("expected DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
                         dre_hex = dre_regex.match(cmd[4])[1]
-                        current_group.add_dr_val(current_serial_no, int(bin(int(dre_hex, 16))[2:]))
+                        current_group.add_dr_val(current_serial_no, int(dre_hex, 16))
 
                         # track total commands seen as a sanity check
                         cmds += 1
