@@ -38,12 +38,19 @@ keepalive.append(ffistr)
 ffiret = ffi.new("char[]", bytes(maxbuf))
 keepalive.append(ffiret)
 
-
 TCK_pin = 4
 TMS_pin = 17
 TDI_pin = 27  # TDI on FPGA, out for this script
 TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
+
+pins = ffi.new("jtag_pins *")
+pins.tck = TCK_pin
+pins.tms = TMS_pin
+pins.tdi = TDI_pin
+pins.tdo = TDO_pin
+pins.trst = PRG_pin
+keepalive.append(pins)
 
 class JtagLeg(Enum):
     DR = 0
@@ -107,7 +114,7 @@ def phy_sync(tdi, tms):
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (1, tdi, tms) )
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
     else:
-        tdo = jtag_pins(tdi, tms, gpio_pointer)
+        tdo = jtag_pins(tdi, tms, pins, gpio_pointer)
 
     return tdo
 
@@ -195,6 +202,7 @@ def jtag_step():
     global do_pause
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin
     global gpio_pointer
+    global pins
     global keepalive
     global compat
     global readout
@@ -284,7 +292,7 @@ def jtag_step():
                     ffi = FFI()
                     ffistr = ffi.new("char[]", bytestr)
                     keepalive.append(ffistr)  # need to make sure the lifetime of the string is long enough for the call
-                    jtag_prog(ffistr, gpio_pointer)
+                    jtag_prog(ffistr, pins, gpio_pointer)
                     GPIO.output(TCK_pin, 0)  # restore this to 0, as jtag_prog() leaves TCK high when done
             else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
                 if compat:
@@ -310,7 +318,7 @@ def jtag_step():
                     ffiret = ffi.new("char[]", retstr)
                     keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
                     keepalive.append(ffiret)
-                    jtag_prog_rbk(ffistr, gpio_pointer, ffiret)
+                    jtag_prog_rbk(ffistr, pins, gpio_pointer, ffiret)
                     tdo_vect = ffi.string(ffiret).decode('utf-8')
 
             state = JtagState.SHIFT

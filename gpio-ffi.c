@@ -14,6 +14,15 @@
 #define GPIO_BASE (base + 0x200000)
 #define GPIO_LENGTH 4096
 
+typedef struct jtag_pins jtag_pins;
+struct jtag_pins {
+  uint32_t tck;
+  uint32_t tms;
+  uint32_t tdi;
+  uint32_t tdo;
+  uint32_t trst;
+};
+
 volatile uint32_t *pi_mmio_gpio = NULL;
 
 volatile uint32_t *pi_mmio_init(uint32_t base) {
@@ -52,38 +61,39 @@ volatile uint32_t *pi_mmio_init(uint32_t base) {
 #define TDI_PIN 27
 #define TDO_PIN 22
 
-int jtag_pins(int tdi, int tms, volatile uint32_t *gpio) {
+/// Clock tck with TDI, TMS values, and return the value of TDO.
+int jtag_pins(int tdi, int tms, jtag_pins pins, volatile uint32_t *gpio) {
 
-  GPIO_CLR = 1 << TCK_PIN;
+  GPIO_CLR = 1 << pins.tck;
 
   if(tdi)
-    GPIO_SET = 1 << TDI_PIN;
+    GPIO_SET = 1 << pins.tdi;
   else
-    GPIO_CLR = 1 << TDI_PIN;
+    GPIO_CLR = 1 << pins.tdi;
 
   if(tms)
-    GPIO_SET = 1 << TMS_PIN;
+    GPIO_SET = 1 << pins.tms;
   else
-    GPIO_CLR = 1 << TMS_PIN;
+    GPIO_CLR = 1 << pins.tms;
 
-  GPIO_SET = 1 << TCK_PIN;
+  GPIO_SET = 1 << pins.tck;
 
-  return (GPIO_LVL & (1 << TDO_PIN)) ? 1 : 0;
+  return (GPIO_LVL & (1 << pins.tdo_pin)) ? 1 : 0;
 }
 
-int jtag_prog(char *bitstream, volatile uint32_t *gpio) {
+int jtag_prog(char *bitstream, jtag_pins pins, volatile uint32_t *gpio) {
 
-  GPIO_CLR = 1 << TMS_PIN; // TMS is known to be zero for this operation
+  GPIO_CLR = 1 << pins.tms_pins; // TMS is known to be zero for this operation
   int i = 0;
   while(bitstream[i] != '\0') {
-    GPIO_CLR = 1 << TCK_PIN;
+    GPIO_CLR = 1 << pins.tck;
 
     if(bitstream[i] == '1')
-      GPIO_SET = 1 << TDI_PIN;
+      GPIO_SET = 1 << pins.tdi;
     else
-      GPIO_CLR = 1 << TDI_PIN;
+      GPIO_CLR = 1 << pins.tdi;
 
-    GPIO_SET = 1 << TCK_PIN;
+    GPIO_SET = 1 << pins.tck;
 
     i++;
   }
@@ -91,28 +101,28 @@ int jtag_prog(char *bitstream, volatile uint32_t *gpio) {
   return 0; // we ignore TDO for speed
 }
 
-void jtag_prog_rbk(char *bitstream, volatile uint32_t *gpio, char *readback) {
+void jtag_prog_rbk(char *bitstream, jtag_pins pins, volatile uint32_t *gpio, char *readback) {
 
-  GPIO_CLR = 1 << TMS_PIN; // TMS is known to be zero for this operation
+  GPIO_CLR = 1 << pins.tms; // TMS is known to be zero for this operation
   int i = 0;
-  GPIO_CLR = 1 << TCK_PIN;
+  GPIO_CLR = 1 << pins.tck;
   while(bitstream[i] != '\0') {
     if(bitstream[i] == '1')
-      GPIO_SET = 1 << TDI_PIN;
+      GPIO_SET = 1 << pins.tdi;
     else
-      GPIO_CLR = 1 << TDI_PIN;
+      GPIO_CLR = 1 << pins.tdi;
 
-    GPIO_SET = 1 << TCK_PIN; // clock needs stretching on the rpi4
-    GPIO_SET = 1 << TCK_PIN;
-    GPIO_SET = 1 << TCK_PIN;
-    GPIO_SET = 1 << TCK_PIN;
-    
-    GPIO_CLR = 1 << TCK_PIN; // meet hold time
-    GPIO_CLR = 1 << TCK_PIN;
-    GPIO_CLR = 1 << TCK_PIN;
-    GPIO_CLR = 1 << TCK_PIN;
+    GPIO_SET = 1 << pins.tck; // clock needs stretching on the rpi4
+    GPIO_SET = 1 << pins.tck;
+    GPIO_SET = 1 << pins.tck;
+    GPIO_SET = 1 << pins.tck;
 
-    if (GPIO_LVL & (1 << TDO_PIN)) {
+    GPIO_CLR = 1 << pins.tck; // meet hold time
+    GPIO_CLR = 1 << pins.tck;
+    GPIO_CLR = 1 << pins.tck;
+    GPIO_CLR = 1 << pins.tck;
+
+    if (GPIO_LVL & (1 << pins.tdo_pin)) {
        readback[i] = '1';
     } else {
        readback[i] = '0';
