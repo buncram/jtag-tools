@@ -654,7 +654,7 @@ def main():
                     current_test = CpTest(testname)
                     current_group = JtagGroup()
                 elif line.startswith('Wait'):
-                    current_group.set_wait = line
+                    current_group.set_wait(line.strip())
                     if 'Check Status' in line:
                         expect_check = True
                     else:
@@ -662,7 +662,7 @@ def main():
                         current_group = JtagGroup()
                 elif line.startswith('Check'):
                     expect_check = False
-                    current_group.set_check = line
+                    current_group.set_check(line.strip())
                     current_test.append_group(current_group)
                     current_group = JtagGroup()
                 else:
