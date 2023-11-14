@@ -44,7 +44,7 @@ TDI_pin = 27  # TDI on FPGA, out for this script
 TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
 
-pins = ffi.new("jtag_pins *")
+pins = ffi.new("pindefs *")
 pins.tck = TCK_pin
 pins.tms = TMS_pin
 pins.tdi = TDI_pin

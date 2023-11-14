@@ -14,8 +14,8 @@
 #define GPIO_BASE (base + 0x200000)
 #define GPIO_LENGTH 4096
 
-typedef struct jtag_pins jtag_pins;
-struct jtag_pins {
+typedef struct pindefs pindefs;
+struct pindefs {
   uint32_t tck;
   uint32_t tms;
   uint32_t tdi;
@@ -62,7 +62,7 @@ volatile uint32_t *pi_mmio_init(uint32_t base) {
 #define TDO_PIN 22
 
 /// Clock tck with TDI, TMS values, and return the value of TDO.
-int jtag_pins(int tdi, int tms, jtag_pins pins, volatile uint32_t *gpio) {
+int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio) {
 
   GPIO_CLR = 1 << pins.tck;
 
@@ -81,7 +81,7 @@ int jtag_pins(int tdi, int tms, jtag_pins pins, volatile uint32_t *gpio) {
   return (GPIO_LVL & (1 << pins.tdo_pin)) ? 1 : 0;
 }
 
-int jtag_prog(char *bitstream, jtag_pins pins, volatile uint32_t *gpio) {
+int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio) {
 
   GPIO_CLR = 1 << pins.tms_pins; // TMS is known to be zero for this operation
   int i = 0;
@@ -101,7 +101,7 @@ int jtag_prog(char *bitstream, jtag_pins pins, volatile uint32_t *gpio) {
   return 0; // we ignore TDO for speed
 }
 
-void jtag_prog_rbk(char *bitstream, jtag_pins pins, volatile uint32_t *gpio, char *readback) {
+void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback) {
 
   GPIO_CLR = 1 << pins.tms; // TMS is known to be zero for this operation
   int i = 0;
