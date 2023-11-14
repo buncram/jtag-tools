@@ -8,14 +8,77 @@ except RuntimeError:
 import csv
 import argparse
 import time
-import subprocess
 import logging
 import sys
+import re
 
 from enum import Enum
 from cffi import FFI
 
 from pathlib import Path
+
+# Tracks a group of tests. Groups are defined as some consecutive number of JTAG operations
+# that are not a different "test" *and* do not require any wait or check condition. So a given
+# "test" may have several groups within it.
+#
+# A "test" is defined as a named test that starts with an @@@ comment.
+class JtagGroup():
+    def __init__(self):
+        self.test = {
+            'start' : -1,
+            'end' : -1,
+            'legs' : [],
+            'wait' : '',
+            'check': '',
+        }
+        self.dr_vals = {} # dictionary of test serial numbers to expected DR values
+
+    def has_start(self):
+        if self.test['start'] < 0:
+            return False
+        else:
+            return True
+    def set_start(self, num):
+        self.test['start'] = num
+    def get_start(self):
+        return self.test['start']
+    def has_end(self):
+        if self.test['end'] < 0:
+            return False
+        else:
+            return True
+    def set_end(self, num):
+        self.test['end'] = num
+    def get_end(self):
+        return self.test['end']
+    def append_leg(self, leg):
+        self.test['legs'] += [leg]
+    def get_legs(self):
+        return self.test['legs']
+    def has_wait(self):
+        return self.test['wait'] != ''
+    def set_wait(self, condition):
+        self.test['wait'] = condition
+    def get_wait(self):
+        return self.test['wait']
+    def has_check(self):
+        return self.test['check'] != ''
+    def get_check(self):
+        return self.test['check']
+    def set_check(self, condition):
+        self.test['check'] = condition
+    def add_dr_val(self, serial_no, dr_val_as_int):
+        self.dr_vals[serial_no] = dr_val_as_int
+    def lookup_dr_val(self, serial_no):
+        return self.dr_vals[serial_no]
+
+class CpTest():
+    def __init__(self, test_name):
+        self.name = test_name
+        self.groups = []
+
+    def append_group(self, group):
+        self.groups += [group]
 
 ffi = FFI()
 ffi.cdef("""
@@ -200,7 +263,6 @@ def decode_ir(ir):
         return ''  # unknown just leave blank for now
 
 def debug_spew(cur_leg):
-
     if not((cur_leg[0] == JtagLeg.DRC) or (cur_leg[0] == JtagLeg.DRS)):
         logging.debug("start: %s (%s) / %s", str(cur_leg), str(decode_ir(int(cur_leg[1],2))), str(cur_leg[2]) )
     else:
@@ -261,7 +323,8 @@ def jtag_step():
                 phy_sync(0, 1)
                 phy_sync(0, 1)
                 phy_sync(0, 1)
-                cur_leg = jtag_legs.pop(0)
+                if len(jtag_legs) > 0:
+                    cur_leg = jtag_legs.pop(0)
                 debug_spew(cur_leg)
                 state = JtagState.TEST_LOGIC_RESET
             elif cur_leg[0] == JtagLeg.DL:
@@ -487,35 +550,25 @@ def main():
         '--prg', type=int, help="Specify PRG (prog) GPIO. Defaults to 24", default=24
     )
     parser.add_argument(
+        '--trst', type=int, help="Specify TRST GPIO. Defaults to 24", default=24
+    )
+    parser.add_argument(
         "-r", "--reset-prog", help="Pull the PROG pin before initiating any commands", default=False, action="store_true"
     )
     args = parser.parse_args()
     if args.debug:
-       logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+        logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    else:
+        logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     ifile = args.file
     compat = args.compat
 
-    if TCK_pin != args.tck:
-        compat = True
-        TCK_pin = args.tck
-    if TDI_pin != args.tdi:
-        compat = True
-        TDI_pin = args.tdi
-    if TDO_pin != args.tdo:
-        compat = True
-        TDO_pin = args.tdo
-    if TMS_pin != args.tms:
-        compat = True
-        TMS_pin = args.tms
-    if PRG_pin != args.prg:
-        PRG_pin = args.prg
-        # prog not in FFI, so no need for compat if it changes
-
-    if compat == True and args.compat == False:
-        print("Compatibility mode triggered because one of tck/tdi/tdo/tms pins do not match the CFFI bindings")
-        print("To fix this, edit gpio-ffi.c and change the #define's to match your bindings, and update the ")
-        print("global defaults to the pins in this file, specified just after the imports.")
+    TCK_pin = args.tck
+    TDI_pin = args.tdi
+    TDO_pin = args.tdo
+    TMS_pin = args.tms
+    PRG_pin = args.prg
 
     rev = GPIO.RPI_INFO
     if rev['P1_REVISION'] == 1:
@@ -525,7 +578,7 @@ def main():
     elif rev['P1_REVISION'] == 4:
         gpio_pointer = gpioffi.pi_mmio_init(0xFE000000)
     else:
-        print("Unknown Raspberry Pi rev, can't set GPIO base")
+        logging.warning("Unknown Raspberry Pi rev, can't set GPIO base")
         compat = True
 
     GPIO.setmode(GPIO.BCM)
@@ -535,62 +588,211 @@ def main():
     if args.reset_prog:
         GPIO.setup(PRG_pin, GPIO.OUT)
 
-    # CSV file format
-    # chain, width, value:
-    # IR, 6, 0b110110
-    # DR, 64, 0x0
-    with open(ifile) as csvfile:
-        reader = csv.reader(csvfile, delimiter=',')
+    if ifile.endswith('tex'):
+        # process tex format
+        cmds = 0
+        # first "test" is a reset command to the scan chain
+        reset_jtag_group = JtagGroup()
+        reset_jtag_group.test['legs'] = [[JtagLeg.RS, '0', '0']] # special-case override to insert a reset command
+        reset_jtag_cp_test = CpTest('Reset JTAG')
+        reset_jtag_cp_test.append_group(reset_jtag_group)
 
-        for row in reader:
-            if len(row) < 3:
-                continue
-            chain = str(row[0]).lower().strip()
-            if chain[0] == '#':
-                continue
-            length = int(row[1])
-            if str(row[2]).strip()[:2] == '0x':
-                value = int(row[2], 16)
-            elif str(row[2]).strip()[:2] == '0b':
-                value = int(row[2], 2)
-            else:
-                value = int(row[2])
+        cp_tests = [reset_jtag_cp_test]
+        current_test = None
+        current_group = None
+        current_serial_no = None
+        expect_check = False
+        testname = 'Uninit'
+        with open(ifile) as f:
+            for line in f:
+                if line.startswith('#'):
+                    assert expect_check == False, "We expected a Check OUTPUT statement but got a new test line. This is a hard error."
+                    cmd = line.split(', ')
+                    if len(cmd) != 5:
+                        logging.error(f".tex command did not conform to expected format! Ignoring: {line}")
+                    else:
+                        # extract serial number, and check it
+                        new_serial_no = int(cmd[0].lstrip('#'))
+                        if current_serial_no is not None:
+                            assert new_serial_no == current_serial_no + 1, "Test serial numbers are not uniformly increasing!"
+                        current_serial_no = new_serial_no
 
-            if (chain != 'dr') & (chain != 'ir') & (chain != 'rs') & (chain != 'dl') & \
-               (chain != 'id') & (chain != 'irp') & (chain != 'ird') & (chain != 'drc') & \
-               (chain != 'drr') & (chain != 'drs'):
-                print('unknown chain type ', chain, ' aborting!')
-                GPIO.cleanup()
-                exit(1)
+                        # track start-to-end serials, mostly for debugging
+                        if not current_group.has_start():
+                            current_group.set_start(current_serial_no)
+                        # start == end if there is just one test!
+                        current_group.set_end(current_serial_no) # we keep updating the "end" test with the last test seen. Not efficient but easy...
+                        assert cmd[1] == 'RW JTAG-REG', "Unexpected JTAG command, this is a hard error. Script needs to be updated to handle all commands!"
 
-            # logging.debug('found JTAG chain ', chain, ' with len ', str(length), ' and data ', hex(value))
-            if chain == 'rs':
-                jtag_legs.append([JtagLeg.RS, '0', '0'])
-            elif chain == 'dl':
-                jtag_legs.append([JtagLeg.DL, '0', '0'])
-            elif chain == 'id':
-                jtag_legs.append([JtagLeg.ID, '0', '0'])
+                        # parse the IR, add it to the JTAG legs
+                        ir_regex = re.compile('IR=\{(.*),(.*)\}')
+                        ir_hex = ir_regex.match(cmd[2])[1]
+                        if ir_regex.match(cmd[2])[2] != "2'b10":
+                            logging.debug(line)
+                        assert ir_regex.match(cmd[2])[2] == "2'b10", "IR second argument was not 2'b10, this is quite possibly problematic"
+                        ir_val = int(ir_hex.lstrip("6'h"), base=16)
+                        current_group.append_leg([JtagLeg.IR, '%0*d' % (6, int(bin(ir_val)[2:])), ' ']) # note hard-coded value of 6 for the IR length!
 
-            else:
-                if chain == 'dr':
-                    code = JtagLeg.DR
-                elif chain == 'drc':
-                    code = JtagLeg.DRC
-                elif chain == 'drr':
-                    code = JtagLeg.DRR
-                elif chain == 'drs':
-                    code = JtagLeg.DRS
-                elif chain == 'ir':
-                    code = JtagLeg.IR
-                elif chain == 'ird':
-                    code = JtagLeg.IRD
+                        # parse the DR going from host to chip, add it to the JTAG legs
+                        dr_regex = re.compile("DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
+                        dr_hex = dr_regex.match(cmd[3])[1]
+                        current_group.append_leg([JtagLeg.DR, '%0*d' % (40, int(bin(int(dr_hex, 16))[2:])), ' ']) # note the hard-coded 40-bit length here!
+
+                        # parse the DR coming from chip to host, add it to the dr_vals tracker
+                        dre_regex = re.compile("expected DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
+                        dre_hex = dre_regex.match(cmd[4])[1]
+                        current_group.add_dr_val(current_serial_no, int(bin(int(dre_hex, 16))[2:]))
+
+                        # track total commands seen as a sanity check
+                        cmds += 1
+                elif line.startswith('@@@'):
+                    testname = line.strip()
+                    if current_test is not None:
+                        if current_group is not None:
+                            current_test.append_group(current_group)
+                        cp_tests += [current_test]
+                    current_test = CpTest(testname)
+                    current_group = JtagGroup()
+                elif line.startswith('Wait'):
+                    current_group.set_wait = line
+                    if 'Check Status' in line:
+                        expect_check = True
+                    else:
+                        current_test.append_group(current_group)
+                        current_group = JtagGroup()
+                elif line.startswith('Check'):
+                    expect_check = False
+                    current_group.set_check = line
+                    current_test.append_group(current_group)
+                    current_group = JtagGroup()
                 else:
-                    code = JtagLeg.IRP
-                if len(row) > 3:
-                    jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), row[3]])
+                    # placeholder for doing stuff with comments, etc.
+                    pass
+
+        # capture the last group
+        current_test.append_group(current_group)
+        cp_tests += [current_test]
+
+        logging.info(f"found {cmds} commands")
+
+        for test in cp_tests:
+            logging.info(f"Running {test.name}")
+            for jtg in test.groups:
+                if jtg.has_start():
+                    logging.info(f"  Group {jtg.get_start()}-{jtg.get_end()}")
+                # gets gross here, because this is assigned to a global variable, jtag_legs...
+                jtag_legs = jtg.get_legs()
+                test_index = jtg.get_start()
+
+                while len(jtag_legs) > 0:
+                        if state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
+                            if len(jtag_legs):
+                                if jtg.has_start():
+                                    expected_data = jtg.lookup_dr_val(test_index)
+                                    test_index += 1
+                                else:
+                                    expected_data = None
+                                logging.debug(f"Running leg {jtag_legs[0]}")
+
+                                if jtag_legs[0][0] == JtagLeg.RS:
+                                    jtag_step()
+                                else:
+                                    # run until out of idle
+                                    while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
+                                        jtag_step()
+
+                                    # run to idle
+                                    logging.debug(f"Finishing leg {jtag_legs[0]}")
+                                    while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
+                                        jtag_step()
+
+                                if expected_data is not None:
+                                    # at this point, jtag_result should have our result if we were in a DR leg
+                                    # print(jtag_results)
+                                    assert len(jtag_results) == 2, "Consistency error in number of results returned"
+                                    if jtag_results[1] != expected_data:
+                                        logging.warning(f"    Expected data 0x{expected_data:x} != result 0x{jtag_results[1]:x}")
+                                    jtag_results = []
+                            else:
+                                # this should do nothing
+                                jtag_step()
+                        else:
+                            # we're in a leg, run to idle
+                            while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
+                                jtag_step()
+
+                # no more legs, check and see if we had a wait or check condition!
+                if jtg.has_wait():
+                    # TODO: implement the wait routine. This is just a placeholder that is a guess
+                    assert 'JTAG-TDO to fall' in jtg.get_wait(), "The wait condition did not match our expectation"
+                    start_time = time.time()
+                    while GPIO.input(TDO_pin) != 0:
+                        if time.time() - start_time > 5:
+                            logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
+                            break
+                        else:
+                            time.sleep(0.01)
+                if jtg.has_check():
+                    # TODO: implement the check routine
+                    logging.warning(f"    NOT IMPLEMENTED: check {jtg.get_check()}")
+
+    else:
+        # CSV file format
+        # chain, width, value:
+        # IR, 6, 0b110110
+        # DR, 64, 0x0
+        with open(ifile) as csvfile:
+            reader = csv.reader(csvfile, delimiter=',')
+
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                chain = str(row[0]).lower().strip()
+                if chain[0] == '#':
+                    continue
+                length = int(row[1])
+                if str(row[2]).strip()[:2] == '0x':
+                    value = int(row[2], 16)
+                elif str(row[2]).strip()[:2] == '0b':
+                    value = int(row[2], 2)
                 else:
-                    jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), ' '])
-    # logging.debug(jtag_legs)
+                    value = int(row[2])
+
+                if (chain != 'dr') & (chain != 'ir') & (chain != 'rs') & (chain != 'dl') & \
+                (chain != 'id') & (chain != 'irp') & (chain != 'ird') & (chain != 'drc') & \
+                (chain != 'drr') & (chain != 'drs'):
+                    print('unknown chain type ', chain, ' aborting!')
+                    GPIO.cleanup()
+                    exit(1)
+
+                # logging.debug('found JTAG chain ', chain, ' with len ', str(length), ' and data ', hex(value))
+                if chain == 'rs':
+                    jtag_legs.append([JtagLeg.RS, '0', '0'])
+                elif chain == 'dl':
+                    jtag_legs.append([JtagLeg.DL, '0', '0'])
+                elif chain == 'id':
+                    jtag_legs.append([JtagLeg.ID, '0', '0'])
+
+                else:
+                    if chain == 'dr':
+                        code = JtagLeg.DR
+                    elif chain == 'drc':
+                        code = JtagLeg.DRC
+                    elif chain == 'drr':
+                        code = JtagLeg.DRR
+                    elif chain == 'drs':
+                        code = JtagLeg.DRS
+                    elif chain == 'ir':
+                        code = JtagLeg.IR
+                    elif chain == 'ird':
+                        code = JtagLeg.IRD
+                    else:
+                        code = JtagLeg.IRP
+                    if len(row) > 3:
+                        jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), row[3]])
+                    else:
+                        jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), ' '])
+        # logging.debug(jtag_legs)
 
     if args.reset_prog:
         reset_fpga()
