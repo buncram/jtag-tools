@@ -14,15 +14,6 @@
 #define GPIO_BASE (base + 0x200000)
 #define GPIO_LENGTH 4096
 
-typedef struct pindefs pindefs;
-struct pindefs {
-  uint32_t tck;
-  uint32_t tms;
-  uint32_t tdi;
-  uint32_t tdo;
-  uint32_t trst;
-};
-
 volatile uint32_t *pi_mmio_gpio = NULL;
 
 volatile uint32_t *pi_mmio_init(uint32_t base) {
@@ -78,12 +69,12 @@ int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio) {
 
   GPIO_SET = 1 << pins.tck;
 
-  return (GPIO_LVL & (1 << pins.tdo_pin)) ? 1 : 0;
+  return (GPIO_LVL & (1 << pins.tdo)) ? 1 : 0;
 }
 
 int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio) {
 
-  GPIO_CLR = 1 << pins.tms_pins; // TMS is known to be zero for this operation
+  GPIO_CLR = 1 << pins.tms; // TMS is known to be zero for this operation
   int i = 0;
   while(bitstream[i] != '\0') {
     GPIO_CLR = 1 << pins.tck;
@@ -122,7 +113,7 @@ void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char 
     GPIO_CLR = 1 << pins.tck;
     GPIO_CLR = 1 << pins.tck;
 
-    if (GPIO_LVL & (1 << pins.tdo_pin)) {
+    if (GPIO_LVL & (1 << pins.tdo)) {
        readback[i] = '1';
     } else {
        readback[i] = '0';

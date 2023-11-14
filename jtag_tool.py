@@ -11,32 +11,40 @@ import time
 import subprocess
 import logging
 import sys
-import binascii
-from Crypto.Cipher import AES
 
 from enum import Enum
-
 from cffi import FFI
-try:
-    from gpioffi.lib import pi_mmio_init
-except ImportError as err:
-    print('Module not found ({}), attempting to rebuild...'.format(err))
-    subprocess.call(['python3', 'build.py'])
-    print('Please try the command again.')
-    exit(1)
 
-from gpioffi.lib import jtag_pins
-from gpioffi.lib import jtag_prog
-from gpioffi.lib import jtag_prog_rbk
+from pathlib import Path
+
+ffi = FFI()
+ffi.cdef("""
+typedef struct pindefs pindefs;
+struct pindefs {
+  uint32_t tck;
+  uint32_t tms;
+  uint32_t tdi;
+  uint32_t tdo;
+  uint32_t trst;
+};
+
+volatile uint32_t *pi_mmio_init(uint32_t base);
+int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio);
+int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio);
+void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
+ """)
+
+found_libs = list(Path('.').glob('*.so'))
+if len(found_libs) == 0:
+    print('CFFI module not found, attempting to rebuild...')
+    ffi.set_source("gpioffi", '#include "gpio-ffi.h"', sources=["gpio-ffi.c"])
+    ffi.compile()
+    found_libs = list(Path('.').glob('*.so'))
+
+assert len(found_libs) == 1, "CFFI object file structure is wrong. Please clear any *.so and *.o files and re-run."
 
 keepalive = []
-ffi = FFI()
-# maxbuf - maximum length, in bits, of a bitstream that can be handled by this script
-maxbuf = 20 * 1024 * 1024
-ffistr = ffi.new("char[]", bytes(maxbuf))
-keepalive.append(ffistr)
-ffiret = ffi.new("char[]", bytes(maxbuf))
-keepalive.append(ffiret)
+gpioffi = ffi.dlopen('./' + found_libs[0].name)
 
 TCK_pin = 4
 TMS_pin = 17
@@ -44,13 +52,20 @@ TDI_pin = 27  # TDI on FPGA, out for this script
 TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
 
-pins = ffi.new("pindefs *")
+pins = ffi.new("struct pindefs *")
 pins.tck = TCK_pin
 pins.tms = TMS_pin
 pins.tdi = TDI_pin
 pins.tdo = TDO_pin
 pins.trst = PRG_pin
 keepalive.append(pins)
+
+# maxbuf - maximum length, in bits, of a bitstream that can be handled by this script
+maxbuf = 20 * 1024 * 1024
+ffistr = ffi.new("char[]", bytes(maxbuf))
+keepalive.append(ffistr)
+ffiret = ffi.new("char[]", bytes(maxbuf))
+keepalive.append(ffiret)
 
 class JtagLeg(Enum):
     DR = 0
@@ -105,7 +120,7 @@ def int_to_binstr_bitwidth(n, bitwidth):
     return bin(n)[2:].zfill(bitwidth)
 
 def phy_sync(tdi, tms):
-    global TCK_pin, TMS_pin, TDI_pin, TDO_pin
+    global TCK_pin, TMS_pin, TDI_pin, TDO_pin, pins, gpio_pointer, gpioffi
 
     if compat:
         tdo = GPIO.input(TDO_pin) # grab the TDO value before the clock changes
@@ -114,7 +129,7 @@ def phy_sync(tdi, tms):
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (1, tdi, tms) )
         GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
     else:
-        tdo = jtag_pins(tdi, tms, pins, gpio_pointer)
+        tdo = gpioffi.jtag_pins(tdi, tms, pins[0], gpio_pointer)
 
     return tdo
 
@@ -201,8 +216,7 @@ def jtag_step():
     global tdo_vect, tdo_stash
     global do_pause
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin
-    global gpio_pointer
-    global pins
+    global gpio_pointer, gpioffi, pins
     global keepalive
     global compat
     global readout
@@ -292,7 +306,7 @@ def jtag_step():
                     ffi = FFI()
                     ffistr = ffi.new("char[]", bytestr)
                     keepalive.append(ffistr)  # need to make sure the lifetime of the string is long enough for the call
-                    jtag_prog(ffistr, pins, gpio_pointer)
+                    gpioffi.jtag_prog(ffistr, pins[0], gpio_pointer)
                     GPIO.output(TCK_pin, 0)  # restore this to 0, as jtag_prog() leaves TCK high when done
             else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
                 if compat:
@@ -318,7 +332,7 @@ def jtag_step():
                     ffiret = ffi.new("char[]", retstr)
                     keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
                     keepalive.append(ffiret)
-                    jtag_prog_rbk(ffistr, pins, gpio_pointer, ffiret)
+                    gpioffi.jtag_prog_rbk(ffistr, pins[0], gpio_pointer, ffiret)
                     tdo_vect = ffi.string(ffiret).decode('utf-8')
 
             state = JtagState.SHIFT
@@ -441,7 +455,7 @@ def auto_int(x):
 def main():
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
     global jtag_legs, jtag_results
-    global gpio_pointer
+    global gpio_pointer, pins, gpioffi
     global compat
     global use_key, nky_key, nky_iv, nky_hmac, use_fuzzer
 
@@ -505,11 +519,11 @@ def main():
 
     rev = GPIO.RPI_INFO
     if rev['P1_REVISION'] == 1:
-        gpio_pointer = pi_mmio_init(0x20000000)
+        gpio_pointer = gpioffi.pi_mmio_init(0x20000000)
     elif rev['P1_REVISION'] == 3 or rev['P1_REVISION'] == 2:
-        gpio_pointer = pi_mmio_init(0x3F000000)
+        gpio_pointer = gpioffi.pi_mmio_init(0x3F000000)
     elif rev['P1_REVISION'] == 4:
-        gpio_pointer = pi_mmio_init(0xFE000000)
+        gpio_pointer = gpioffi.pi_mmio_init(0xFE000000)
     else:
         print("Unknown Raspberry Pi rev, can't set GPIO base")
         compat = True
