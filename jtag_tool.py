@@ -781,13 +781,14 @@ def main():
                                 else:
                                     expected_data = None
                                 logging.debug(f"Running leg {jtag_legs[0]}")
-                                check_wait_cmds = [] # stash a copy of the commands to repeat while doing a check loop
-                                check_wait_cmds += [jtag_legs[0].copy()]
-                                check_wait_cmds += [jtag_legs[1].copy()]
-
                                 if jtag_legs[0][0] == JtagLeg.RS:
                                     jtag_step()
                                 else:
+                                    # stash a copy of the commands to repeat in case we are in a check loop
+                                    check_wait_cmds = []
+                                    check_wait_cmds += [jtag_legs[0].copy()]
+                                    check_wait_cmds += [jtag_legs[1].copy()]
+
                                     # run until out of idle
                                     while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
                                         jtag_step()
