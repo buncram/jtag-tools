@@ -123,6 +123,7 @@ TMS_pin = 17
 TDI_pin = 27  # TDI on FPGA, out for this script
 TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
+tex_mode = False
 
 pins = ffi.new("struct pindefs *")
 pins.tck = TCK_pin
@@ -214,62 +215,131 @@ def reset_fpga():
 
 
 def decode_ir(ir):
-    if ir == 0b100110:
-        return 'EXTEST'
-    elif ir == 0b111100:
-        return 'EXTEST_PULSE'
-    elif ir == 0b111101:
-        return 'EXTEST_TRAIN'
-    elif ir == 0b000001:
-        return 'SAMPLE'
-    elif ir == 0b000010:
-        return 'USER1'
-    elif ir == 0b000011:
-        return 'USER2'
-    elif ir == 0b100010:
-        return 'USER3'
-    elif ir == 0b100011:
-        return 'USER4'
-    elif ir == 0b000100:
-        return 'CFG_OUT'
-    elif ir == 0b000101:
-        return 'CFG_IN'
-    elif ir == 0b001001:
-        return 'IDCODE'
-    elif ir == 0b001010:
-        return 'HIGHZ_IO'
-    elif ir == 0b001011:
-        return 'JPROGRAM'
-    elif ir == 0b001100:
-        return 'JSTART'
-    elif ir == 0b001101:
-        return 'JSHUTDOWN'
-    elif ir == 0b110111:
-        return 'XADC_DRP'
-    elif ir == 0b010000:
-        return 'ISC_ENABLE'
-    elif ir == 0b010001:
-        return 'ISC_PROGRAM'
-    elif ir == 0b010010:
-        return 'XSC_PROGRAM_KEY'
-    elif ir == 0b010111:
-        return 'XSC_DNA'
-    elif ir == 0b110010:
-        return 'FUSE_DNA'
-    elif ir == 0b010100:
-        return 'ISC_NOOP'
-    elif ir == 0b010110:
-        return 'ISC_DISABLE'
-    elif ir == 0b111111:
-        return 'BYPASS'
-    elif ir == 0b110001:
-        return 'FUSE_KEY'
-    elif ir == 0b110011:
-        return 'FUSE_USER'
-    elif ir == 0b110100:
-        return 'FUSE_CNTL'
+    if not tex_mode:
+        if ir == 0b100110:
+            return 'EXTEST'
+        elif ir == 0b111100:
+            return 'EXTEST_PULSE'
+        elif ir == 0b111101:
+            return 'EXTEST_TRAIN'
+        elif ir == 0b000001:
+            return 'SAMPLE'
+        elif ir == 0b000010:
+            return 'USER1'
+        elif ir == 0b000011:
+            return 'USER2'
+        elif ir == 0b100010:
+            return 'USER3'
+        elif ir == 0b100011:
+            return 'USER4'
+        elif ir == 0b000100:
+            return 'CFG_OUT'
+        elif ir == 0b000101:
+            return 'CFG_IN'
+        elif ir == 0b001001:
+            return 'IDCODE'
+        elif ir == 0b001010:
+            return 'HIGHZ_IO'
+        elif ir == 0b001011:
+            return 'JPROGRAM'
+        elif ir == 0b001100:
+            return 'JSTART'
+        elif ir == 0b001101:
+            return 'JSHUTDOWN'
+        elif ir == 0b110111:
+            return 'XADC_DRP'
+        elif ir == 0b010000:
+            return 'ISC_ENABLE'
+        elif ir == 0b010001:
+            return 'ISC_PROGRAM'
+        elif ir == 0b010010:
+            return 'XSC_PROGRAM_KEY'
+        elif ir == 0b010111:
+            return 'XSC_DNA'
+        elif ir == 0b110010:
+            return 'FUSE_DNA'
+        elif ir == 0b010100:
+            return 'ISC_NOOP'
+        elif ir == 0b010110:
+            return 'ISC_DISABLE'
+        elif ir == 0b111111:
+            return 'BYPASS'
+        elif ir == 0b110001:
+            return 'FUSE_KEY'
+        elif ir == 0b110011:
+            return 'FUSE_USER'
+        elif ir == 0b110100:
+            return 'FUSE_CNTL'
+        else:
+            return ''  # unknown just leave blank for now
     else:
-        return ''  # unknown just leave blank for now
+        base = ir >> 2 # discard two lower bits, they set a mode
+        if ir == 0x1:
+            return 'R_BIST_IP_CONFIG'
+        elif ir == 0x2:
+            return 'R_BIST_TRC_DATA'
+        elif ir == 0x3:
+            return 'R_BIST_PATTERN'
+        elif ir == 0x4:
+            return 'R_BIST_ADR_CTRL'
+        elif ir == 0x5:
+            return 'R_BIST_TRC_DATA_RW_BIT_EABLE'
+        elif ir == 0x6:
+            return 'R_BIST_CMD'
+        elif ir == 0x7:
+            return 'R_BIST_PIN_CTRL'
+        elif ir == 0x8:
+            return 'R_BIST_ADR_CTRL_SETTING_1'
+        elif ir == 0x9:
+            return 'R_BIST_GRPSEL'
+        elif ir == 0xb:
+            return 'R_BIST_STATUS'
+        elif ir == 0xc:
+            return 'R_BIST_STATUS_EN'
+        elif ir == 0xd:
+            return 'R_BIST_STATUS_CLR'
+        elif ir == 0xe:
+            return 'R_BIST_STATUS_ARRYINFO_IP0'
+        elif ir == 0xf:
+            return 'R_BIST_STATUS_EN_ARRYINFO_PI0'
+        elif ir == 0x10:
+            return 'R_BIST_LOOP_CTRL'
+        elif ir == 0x11:
+            return 'R_BIST_VERSION'
+        elif ir == 0x12:
+            return 'R_BIST_FPC_SETTING'
+        elif ir == 0x13:
+            return 'R_BIST_TRIM_COMPARE'
+        elif ir == 0x14:
+            return 'R_BIST_DBG_SETTING'
+        elif ir == 0x15:
+            return 'R_BIST_DBG_BIST_DOUT'
+        elif ir == 0x16:
+            return 'R_BIST_ADR_CTRL_SETTING_0'
+        elif ir == 0x18:
+            return 'R_BIST_REPAIR_SECTOR_SEL'
+        elif ir == 0x19:
+            return 'R_BIST_COL_REPAIR_SEC'
+        elif ir == 0x1a:
+            return 'R_BIST_ROW_REPAIR_SEC_TOPBOT_BANK'
+        elif ir == 0x20:
+            return 'R_BIST_MULTI_XSIZE_PROGRAM'
+        elif ir == 0x21:
+            return 'R_BIST_MULTI_XSIZE_PROGRAM_1'
+        elif ir == 0x22:
+            return 'R_BIST_MULTI_XSIZE_PROGRAM_2'
+        elif ir == 0x23:
+            return 'R_BIST_COUTER_SETTING'
+        elif ir == 0x34:
+            return 'R_BIST_BLG_TARGET_STATUS_EN'
+        elif ir == 0x35:
+            return 'R_BIST_BLG_TARGET_STATUS'
+        elif ir == 0x36:
+            return 'R_BIST_BLG_DUMMY_STATUS_EN'
+        elif ir == 0x37:
+            return 'R_BIST_BLG_DUMMY_STATUS'
+        elif ir == 0x3c:
+            return 'R_BIST_BLG_IP_CONFIG'
 
 def debug_spew(cur_leg):
     if not((cur_leg[0] == JtagLeg.DRC) or (cur_leg[0] == JtagLeg.DRS)):
@@ -528,6 +598,7 @@ def main():
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
     global jtag_legs, jtag_results
     global gpio_pointer, pins, gpioffi
+    global tex_mode
     global compat
     global use_key, nky_key, nky_iv, nky_hmac, use_fuzzer
 
@@ -598,6 +669,7 @@ def main():
         GPIO.setup(PRG_pin, GPIO.OUT)
 
     if ifile.endswith('tex'):
+        tex_mode = True
         # process tex format
         cmds = 0
         # first "test" is a reset command to the scan chain
