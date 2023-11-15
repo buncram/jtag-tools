@@ -614,7 +614,6 @@ def main():
         with open(ifile) as f:
             for line in f:
                 if line.startswith('#'):
-                    assert expect_check == False, "We expected a Check OUTPUT statement but got a new test line. This is a hard error."
                     cmd = line.split(', ')
                     if len(cmd) != 5:
                         logging.error(f".tex command did not conform to expected format! Ignoring: {line}")
