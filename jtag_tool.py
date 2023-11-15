@@ -18,12 +18,14 @@ from cffi import FFI
 from pathlib import Path
 
 # Tracks a group of tests. Groups are defined as some consecutive number of JTAG operations
-# that are not a different "test" *and* do not require any wait or check condition. So a given
-# "test" may have several groups within it.
+# that are not a different "test" *and* do not require any wait or check condition.
 #
-# A "test" is defined as a named test that starts with an @@@ comment.
+# A given CP test may have several groups within it.
+#
+# A single CP test is defined as a named test that starts with an @@@ comment.
 class JtagGroup():
     def __init__(self):
+        # Test data is structured in a dictionary so we can export to JSON easily if needed.
         self.test = {
             'start' : -1,
             'end' : -1,
@@ -55,12 +57,18 @@ class JtagGroup():
         self.test['legs'] += [leg]
     def get_legs(self):
         return self.test['legs']
+    # A "wait" can only happen at the *end* of a JtagGroup's list of JTAG commands
+    # Thus each group can only have one wait set, and it is always executed after
+    # the last JTAG command has completed.
     def has_wait(self):
         return self.test['wait'] != ''
     def set_wait(self, condition):
         self.test['wait'] = condition
     def get_wait(self):
         return self.test['wait']
+    # A "check" only applies to the *first* command in a JtagGroup's list of JTAG commands.
+    # Thus each group can only have at most one check conditio, and it is always executed
+    # immediately after the first JTAG DR command.
     def has_check(self):
         return self.test['check'] != ''
     def get_check(self):
@@ -72,6 +80,7 @@ class JtagGroup():
     def lookup_dr_val(self, serial_no):
         return self.dr_vals[serial_no]
 
+# CpTest is a structure for collecting several groups together into a single named test.
 class CpTest():
     def __init__(self, test_name):
         self.name = test_name
