@@ -273,7 +273,7 @@ def decode_ir(ir):
         else:
             return ''  # unknown just leave blank for now
     else:
-        base = ir >> 2 # discard two lower bits, they set a mode
+        ir = ir >> 2 # discard two lower bits, they set a mode
         if ir == 0x1:
             return 'R_BIST_IP_CONFIG'
         elif ir == 0x2:
@@ -340,6 +340,8 @@ def decode_ir(ir):
             return 'R_BIST_BLG_DUMMY_STATUS'
         elif ir == 0x3c:
             return 'R_BIST_BLG_IP_CONFIG'
+        else:
+            return ''  # unknown just leave blank for now
 
 def debug_spew(cur_leg):
     if not((cur_leg[0] == JtagLeg.DRC) or (cur_leg[0] == JtagLeg.DRS)):
