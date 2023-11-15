@@ -786,8 +786,9 @@ def main():
                                 else:
                                     # stash a copy of the commands to repeat in case we are in a check loop
                                     check_wait_cmds = []
-                                    check_wait_cmds += [jtag_legs[0].copy()]
-                                    check_wait_cmds += [jtag_legs[1].copy()]
+                                    # can't just use 'copy' because the references are destroyed
+                                    check_wait_cmds += [[jtag_legs[0][0], jtag_legs[0][1], jtag_legs[0][2]]]
+                                    check_wait_cmds += [[jtag_legs[1][0], jtag_legs[1][1], jtag_legs[1][2]]]
 
                                     # run until out of idle
                                     while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
@@ -816,8 +817,9 @@ def main():
                                                         logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
                                                         hard_errors += 1
                                                         break
-                                                    jtag_legs.insert(0, check_wait_cmds[1]) # insert the DR
-                                                    jtag_legs.insert(0, check_wait_cmds[0]) # insert the IR
+                                                    # can't point to the reference in check_wait_cmds because the references are destroyed
+                                                    jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
+                                                    jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
                                                     # reset jtag_results
                                                     jtag_results = []
                                                     # rerun the poll loop
