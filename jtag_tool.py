@@ -782,8 +782,8 @@ def main():
                                     expected_data = None
                                 logging.debug(f"Running leg {jtag_legs[0]}")
                                 check_wait_cmds = [] # stash a copy of the commands to repeat while doing a check loop
-                                check_wait_cmds[0] = jtag_legs[0].copy()
-                                check_wait_cmds[1] = jtag_legs[1].copy()
+                                check_wait_cmds += [jtag_legs[0].copy()]
+                                check_wait_cmds += [jtag_legs[1].copy()]
 
                                 if jtag_legs[0][0] == JtagLeg.RS:
                                     jtag_step()
