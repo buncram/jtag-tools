@@ -17,6 +17,8 @@ from cffi import FFI
 
 from pathlib import Path
 
+TIMEOUT_S = 5  # default timeout, in seconds
+
 # Tracks a group of tests. Groups are defined as some consecutive number of JTAG operations
 # that are not a different "test" *and* do not require any wait or check condition.
 #
@@ -756,6 +758,7 @@ def main():
         cp_tests += [current_test]
 
         logging.info(f"found {cmds} commands")
+        hard_errors = 0
 
         for test in cp_tests:
             logging.info(f"Running {test.name}")
@@ -778,6 +781,9 @@ def main():
                                 else:
                                     expected_data = None
                                 logging.debug(f"Running leg {jtag_legs[0]}")
+                                check_wait_cmds = [] # stash a copy of the commands to repeat while doing a check loop
+                                check_wait_cmds[0] = jtag_legs[0].copy()
+                                check_wait_cmds[1] = jtag_legs[1].copy()
 
                                 if jtag_legs[0][0] == JtagLeg.RS:
                                     jtag_step()
@@ -802,11 +808,26 @@ def main():
                                             check_statement = jtg.get_check()
                                             if '[X]' not in check_statement:
                                                 # all check statements want to confirm that the busy bit is not set (bit 1)
-                                                if (jtag_results[1] & 1) != 0:
-                                                    logging.error(f"    Check statement failed: busy bit is set.")
-                                                    # TODO: how do we handle this error?? just print it and move on? abort? retry?
+                                                start_time = time.time()
+                                                while (jtag_results[1] & 1) != 0:
+                                                    logging.warning(f"    BIST is still busy, trying again")
+                                                    if time.time() - start_time > TIMEOUT_S:
+                                                        logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
+                                                        hard_errors += 1
+                                                        break
+                                                    jtag_legs.insert(0, check_wait_cmds[1]) # insert the DR
+                                                    jtag_legs.insert(0, check_wait_cmds[0]) # insert the IR
+                                                    # reset jtag_results
+                                                    jtag_results = []
+                                                    # rerun the poll loop
+                                                    while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
+                                                        jtag_step()
+                                                    while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
+                                                        jtag_step()
                                             else:
-                                                logging.warning(f"    Check statement found with [X] argument; skipping check")
+                                                if jtag_results[1] != expected_data:
+                                                    logging.error(f"    All-bit check of DR return value failed.")
+                                                    hard_errors += 1
                                         first_leg = False
                                     jtag_results = []
                             else:
@@ -823,11 +844,14 @@ def main():
                     assert 'JTAG-TDO to fall' in jtg.get_wait(), "The wait condition did not match our expectation"
                     start_time = time.time()
                     while GPIO.input(TDO_pin) != 0:
-                        if time.time() - start_time > 5:
+                        if time.time() - start_time > TIMEOUT_S:
                             logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
+                            hard_errors += 1
                             break
                         else:
                             time.sleep(0.01)
+
+        logging.info(f"CP test finished with {hard_errors} hard errors")
 
     else:
         # CSV file format
