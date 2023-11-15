@@ -636,9 +636,11 @@ def main():
                         ir_hex = ir_regex.match(cmd[2])[1]
                         if ir_regex.match(cmd[2])[2] != "2'b10":
                             logging.debug(line)
-                        assert ir_regex.match(cmd[2])[2] == "2'b10", "IR second argument was not 2'b10, this is quite possibly problematic"
+                        assert ir_regex.match(cmd[2])[2] == "2'b10", "IR second argument was not 2'b10: extend the parser to handle this case"
                         ir_val = int(ir_hex.lstrip("6'h"), base=16)
-                        current_group.append_leg([JtagLeg.IR, '%0*d' % (6, int(bin(ir_val)[2:])), ' ']) # note hard-coded value of 6 for the IR length!
+                        ir_val <<= 2
+                        ir_val |= 0b10 # easy enough to extend the parser to handle other cases, but since we only ever see 2'b10 in practice...
+                        current_group.append_leg([JtagLeg.IR, '%0*d' % (8, int(bin(ir_val)[2:])), ' ']) # note hard-coded value of 6 for the IR length!
 
                         # parse the DR going from host to chip, add it to the JTAG legs
                         dr_regex = re.compile("DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
