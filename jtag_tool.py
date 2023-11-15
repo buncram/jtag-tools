@@ -610,7 +610,6 @@ def main():
         current_test = None
         current_group = None
         current_serial_no = None
-        expect_check = False
         testname = 'Uninit'
         with open(ifile) as f:
             for line in f:
@@ -663,17 +662,16 @@ def main():
                     current_test = CpTest(testname)
                     current_group = JtagGroup()
                 elif line.startswith('Wait'):
+                    # set a wait condition, which ends the group.
                     current_group.set_wait(line.strip())
-                    if 'Check Status' in line:
-                        expect_check = True
-                    else:
+                    current_test.append_group(current_group)
+                    # create a new group for future commands
+                    current_group = JtagGroup()
+                elif line.startswith('Check'):
+                    if current_group.has_check(): # if a check already exists, terminate the group and start a new one
                         current_test.append_group(current_group)
                         current_group = JtagGroup()
-                elif line.startswith('Check'):
-                    expect_check = False
                     current_group.set_check(line.strip())
-                    current_test.append_group(current_group)
-                    current_group = JtagGroup()
                 else:
                     # placeholder for doing stuff with comments, etc.
                     pass
@@ -693,6 +691,9 @@ def main():
                 jtag_legs = jtg.get_legs()
                 test_index = jtg.get_start()
 
+                if jtg.has_check() and len(jtag_legs) == 0:
+                    logging.error("Check statement found, but no JTAG legs were defined to run the check on!")
+                first_leg = True
                 while len(jtag_legs) > 0:
                         if state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
                             if len(jtag_legs):
@@ -721,6 +722,17 @@ def main():
                                     assert len(jtag_results) == 2, "Consistency error in number of results returned"
                                     if jtag_results[1] != expected_data:
                                         logging.warning(f"    Expected data 0x{expected_data:x} != result 0x{jtag_results[1]:x}")
+                                    if first_leg:
+                                        if jtg.has_check():
+                                            check_statement = jtg.get_check()
+                                            if '[X]' not in check_statement:
+                                                # all check statements want to confirm that the busy bit is not set (bit 1)
+                                                if (jtag_results[1] & 1) != 0:
+                                                    logging.error(f"    Check statement failed: busy bit is set.")
+                                                    # TODO: how do we handle this error?? just print it and move on? abort? retry?
+                                            else:
+                                                logging.warning(f"    Check statement found with [X] argument; skipping check")
+                                        first_leg = False
                                     jtag_results = []
                             else:
                                 # this should do nothing
@@ -741,9 +753,6 @@ def main():
                             break
                         else:
                             time.sleep(0.01)
-                if jtg.has_check():
-                    # TODO: implement the check routine
-                    logging.warning(f"    NOT IMPLEMENTED: check {jtg.get_check()}")
 
     else:
         # CSV file format
