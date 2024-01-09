@@ -24,6 +24,8 @@ from cffi import FFI
 from pathlib import Path
 
 TIMEOUT_S = 5  # default timeout, in seconds
+BANK_RRAM0 = 0
+BANK_RRAM1 = 1
 
 # Tracks a group of tests. Groups are defined as some consecutive number of JTAG operations
 # that are not a different "test" *and* do not require any wait or check condition.
@@ -90,9 +92,10 @@ class JtagGroup():
 
 # CpTest is a structure for collecting several groups together into a single named test.
 class CpTest():
-    def __init__(self, test_name):
+    def __init__(self, test_name, bank=0):
         self.name = test_name
         self.groups = []
+        self.bank = bank
 
     def append_group(self, group):
         self.groups += [group]
@@ -102,6 +105,14 @@ TMS_pin = 17
 TDI_pin = 27  # TDI on FPGA, out for this script
 TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
+# rram0
+TDI_R0_pin = 27
+TDO_R0_pin = 22
+TMS_R0_pin = 17
+# rram1
+TDI_R1_pin = 9
+TDO_R1_pin = 11
+TMS_R1_pin = 10
 tex_mode = False
 
 if USE_GPIO:
@@ -624,6 +635,144 @@ def jtag_next():
 def auto_int(x):
     return int(x, 0)
 
+def set_bank(bank):
+    global TMS_pin, TDI_pin, TDO_pin
+    global TMS_R1_pin, TDI_R1_pin, TDO_R1_pin
+    global TMS_R0_pin, TDI_R0_pin, TDO_R0_pin
+    global pins, USE_GPIO
+    if bank == BANK_RRAM1:
+        logging.debug("Selecting RRAM1")
+        if USE_GPIO:
+            pins.tms = TMS_R1_pin
+            pins.tdi = TDI_R1_pin
+            pins.tdo = TDO_R1_pin
+        TMS_pin = TMS_R1_pin
+        TDI_pin = TDI_R1_pin
+        TDO_pin = TDO_R1_pin
+    else:
+        logging.debug("Selecting RRAM0")
+        if USE_GPIO:
+            pins.tms = TMS_R0_pin
+            pins.tdi = TDI_R0_pin
+            pins.tdo = TDO_R0_pin
+        TMS_pin = TMS_R0_pin
+        TDI_pin = TDI_R0_pin
+        TDO_pin = TDO_R0_pin
+
+class TexWriter():
+    def __init__(self, obin):
+        self.obin = obin
+        self.cmd_number = 0
+
+    def write_cmd(self, cmd):
+        self.obin.write(f"#{self.cmd_number}, {cmd}\n")
+        self.cmd_number += 1
+    def write_comment(self, comment):
+        self.obin.write(f"// {comment}\n")
+    def write_testname(self, name):
+        self.obin.write(f"@@@ {name}\n")
+    def write_wait_tdo(self):
+        self.obin.write("Wait for JTAG-TDO to fall and Check Status\n")
+    def set_bank(self, bank):
+        self.obin.write(f"!bank {bank}\n")
+    def write_rram(self, address, data, bank):
+        self.set_bank(bank)
+        self.write_testname(f'Write single word {int.from_bytes(data, "little"):32x} w/ECC ON at address 0x{address:x}')
+        self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
+        self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000004)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0018000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
+        self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
+        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        self.write_comment("clear write data buffer")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)")
+        # write data
+        for wr_ptr in range(0, 16, 4):
+            self.write_comment(f"User loads data buffer [{(wr_ptr+4) * 8 - 1}:{wr_ptr * 8}]")
+            word = int.from_bytes(data[wr_ptr:wr_ptr + 4], 'little')
+            self.write_cmd(f"RW JTAG-REG, IR={{6'h02,2'b10}}(addr:('h02)), DR data:(40'h{word:010x})")
+            self.write_comment(f"User selects buffer {wr_ptr // 4} to load buffer data")
+            self.write_cmd(f"RW JTAG-REG, IR={{6'h09,2'b10}}(addr:('h09)), DR data:(40'h{0x410 + wr_ptr // 4:010x})")
+        self.write_comment("User loads data buffer[143:128] = 0x0000 (DR bit[15:0]) = Don't Care w/ ECC ON")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)")
+        self.write_comment("User selects buffer 4 to load buffer data")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000414)")
+        # write addresses
+        y_address = (address & 0b11_1110_0000) >> 5
+        self.write_comment(f"User inputs Write Y address = 0x{y_address:x} (DR bit[23:16])")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{(y_address << 16) | 3:010x})")
+        self.write_comment("User issues BIST LOAD command and, starts bist_run")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000602c80)")
+        x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
+        self.write_comment(f"User inputs WRITE X address = 0x{x_address:x} (DR bit[15:0])")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{x_address:010x})")
+        self.write_comment("User inputs WRITE # of loop=0x0")
+        self.write_cmd("RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)")
+        self.write_comment("User inputs address and data pattern(ADR_FIX, DATA_FIX, LOOP_0)")
+        self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
+        self.write_comment("User sets bist_write_status_ip0_en = 0x1")
+        self.write_cmd("RW JTAG-REG, IR={6'h0c,2'b10}(addr:('h0c)), DR data:(40'h0000000040)")
+        self.write_comment("User issues bist WRITE command")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000605480)")
+        self.write_comment("Read out bit[6]=bist_write_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)")
+        # check this return address
+        self.write_wait_tdo()
+        self.write_cmd("RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a), expected DR data:(40'h000000000a)")
+
+    def verify_rram(self, address, checkdata, bank):
+        self.set_bank(bank)
+        self.write_testname(f'Verify single word w/ECC ON at address 0x{address:x}')
+        self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
+        self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000004)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0018000000)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)")
+        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
+        self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
+        self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
+        self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
+        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        # read addresses
+        self.write_comment(f"User inputs read address = 0x{address:x} (DR bit[23:0])")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{address:010x})")
+        # issue read command
+        self.write_comment(f"User inputs READ # of loop=0x0")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h10,2'b10}}(addr:('h10)), DR data:(40'h0000000000)")
+        self.write_comment(f"User inputs address and data pattern, (data_option needs to be 0x6 = DATA_LATCH to output RRAM DOUT to TDO)")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h03,2'b10}}(addr:('h03)), DR data:(40'h0000000060)")
+        self.write_comment(f"User sets bist_read_status_ip0_en = 0x1")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h0c,2'b10}}(addr:('h0c)), DR data:(40'h0000000400)")
+        self.write_comment(f"User issues bist READ command")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h06,2'b10}}(addr:('h06)), DR data:(40'h000060c880)")
+        self.write_comment(f"Read out bit[10]=bist_read_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)")
+        self.write_wait_tdo()
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h0b,2'b10}}(addr:('h0b)), DR data:(40'h000000000a), expected DR data:(40'h000000000a)")
+        # get read data
+        for rd_ptr in range(0, 16, 4):
+            self.write_comment(f"set debug_bist_grpsel=0x0, R_BIST_debug_bist_grpdata[31:0] = macro_dout[{(rd_ptr+4) * 8 - 1}:{rd_ptr * 8}]")
+            checkaddr = 0x2000 | (rd_ptr // 4) << 16
+            self.write_cmd(f"RW JTAG-REG, IR={{6'h14,2'b10}}(addr:('h14)), DR data:(40'h{checkaddr:10x})")
+            self.write_comment(f"User outpus R_BIST_debug_bist_grpdata[{(rd_ptr+1) * 8 - 1}:{rd_ptr * 8}] to TDO during DRSHIFT")
+            checkword = int.from_bytes(checkdata[rd_ptr:rd_ptr + 4], 'little')
+            self.write_cmd(f"RW JTAG-REG, IR={{6'h15,2'b10}}(addr:('h15)), DR data:(40'h0000000000), expected DR data:(40'h{checkword:010x})")
+
+
 def main():
     global USE_GPIO
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
@@ -639,7 +788,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Drive JTAG via Rpi GPIO")
     parser.add_argument(
-        "-f", "--file", required=True, help="file containing jtag command list or bitstream", type=str
+        "-f", "--file", required=True, help="a file ending in .jtg, .bin, or .tex. Operation is dispatched based on the extension: manual jtag commands for .jtg, firmware upload for .bin, and CP testing for .tex", type=str
     )
     parser.add_argument(
         "-c", "--compat", default=False, action="store_true", help="Use compatibility mode (warning: about 100x slower than FFI)"
@@ -648,13 +797,22 @@ def main():
         "-d", "--debug", help="turn on debugging spew", default=False, action="store_true"
     )
     parser.add_argument(
-        '--tdi', type=int, help="Specify TDI GPIO. Defaults to 27", default=27
+        '--tdi', type=int, help="Specify RRAM0 TDI GPIO. Defaults to 27", default=27
     )
     parser.add_argument(
-        '--tdo', type=int, help="Specify TDO GPIO. Defaults to 22", default=22
+        '--tdo', type=int, help="Specify RRAM0 TDO GPIO. Defaults to 22", default=22
     )
     parser.add_argument(
-        '--tms', type=int, help="Specify TMS GPIO. Defaults to 17", default=17
+        '--tms', type=int, help="Specify RRAM0 TMS GPIO. Defaults to 17", default=17
+    )
+    parser.add_argument(
+        '--tdi-r1', type=int, help="Specify RRAM1 TDI GPIO. Defaults to 9", default=9
+    )
+    parser.add_argument(
+        '--tdo-r1', type=int, help="Specify RRAM1 TDO GPIO. Defaults to 11", default=11
+    )
+    parser.add_argument(
+        '--tms-r1', type=int, help="Specify RRAM1 TMS GPIO. Defaults to 10", default=10
     )
     parser.add_argument(
         '--tck', type=int, help="Specify TCK GPIO. Defaults to 4", default=4
@@ -682,6 +840,9 @@ def main():
     TDO_pin = args.tdo
     TMS_pin = args.tms
     PRG_pin = args.prg
+    TDI_R1_pin = args.tdi_r1
+    TDO_R1_pin = args.tdo_r1
+    TMS_R1_pin = args.tms_r1
 
     if USE_GPIO:
         rev = GPIO.RPI_INFO
@@ -698,11 +859,100 @@ def main():
         GPIO.setmode(GPIO.BCM)
 
         GPIO.setup((TCK_pin, TMS_pin, TDI_pin), GPIO.OUT)
+        GPIO.setup((TCK_pin, TMS_R1_pin, TDI_R1_pin), GPIO.OUT)
         GPIO.setup(TDO_pin, GPIO.IN)
+        GPIO.setup(TDO_R1_pin, GPIO.IN)
         if args.reset_prog:
             GPIO.setup(PRG_pin, GPIO.OUT)
 
-    if ifile.endswith('tex'):
+    # convert 'bin' to 'tex'
+    if ifile.endswith('.bin'):
+        cmd_cnt = 0
+        with open(ifile, 'rb') as ibin:
+            with open(ifile[:-4] + '.tex', 'w') as obin:
+                tex_writer = TexWriter(obin)
+                bin = ibin.read()
+                assert len(bin) % (256 // 8) == 0, "Input file must be padded to a 32-byte boundary"
+                rd_ptr = 0
+                # per spec:
+
+                # string MEMFILE = "reram_simcode.bin";
+                # fd = $fopen(MEMFILE,"rb");
+                # for(i = 0; (i < MEMDEPTH ) ; i = i + 1)
+                # begin
+                #     r0 = $fread(data0,fd);
+                #     r1 = $fread(data1,fd);
+                #     r2 = $fread(data2,fd);
+                #     r3 = $fread(data3,fd);
+                #     reram_source = {swizzle(data3),swizzle(data2),swizzle(data1),swizzle(data0)};
+                #     reram_data0[i] = reram_source[127:0]  // wdata for IP0
+                #     reram_data1[i] = reram_source[255:128]    // wdata for IP1
+                # end
+                #
+                # Significantly, the spec does *not* declare the endianness of data0, but
+                # reading the source code it seems to be:
+                #    reg  [63:0]  data0
+                #
+                # Thus an `$fread(data0,fd)` into `data0` will take the first 64 bits out
+                # of the stream and assign it in big-endian order to data0:
+                #   0b1100_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000
+                # will yield
+                #   data0: u64 = 0xC000_0000_0000_0000
+                #
+                # the `swizzle` function, which is also not documented in the spec,
+                # seems to do a swap of data across an 8-byte word:
+                #
+                # parameter DATAWIDTH = 64;
+                # localparam DATA_BYTES = 8;
+                # //Function to account for the Big Endianness of $fread
+                # function [DATAWIDTH-1:0] swizzle;
+                #     input [DATAWIDTH-1:0] data_in;
+                #     integer i;
+                #     begin
+                #         for (i=0; i<DATA_BYTES; i=i+1)
+                #         swizzle[i*8 +:8] = data_in[(DATA_BYTES-1-i)*8 +:8];
+                #     end
+                # endfunction
+                #
+                # so swizzle[7:0] = data_in[63:56], swizzle[15:8] = data_in[55:48], etc.
+                #
+                # Thus the formatting of reram_source is:
+                #
+                # .bin offset  |  description
+                # 0x00         |  reram_data0[7:0]
+                # 0x01         |  reram_data0[15:8]
+                #  ...
+                # 0x0F         |  reram_data0[127:120]
+                # 0x10         |  reram_data1[7:0]
+                #  ...
+                # 0x1E         |  reram_data1[127:120]
+                #
+                # per the data0 = 0xC000_0000_0000_0000 example above, assuming
+                # all other bits are 0, reram_data0 would be:
+                #   reram_data0: u128 = 0x0000_0000_0000_0000_0000_0000_0000_00C0
+
+                # stride through the input file in 256-bit chunks: 32*8 = 256
+                for rd_ptr in range(0, len(bin), 32):
+                    # split into the two 128-bit sections
+                    raw_data0 = bin[rd_ptr * 32 : rd_ptr * 32 + 16]
+                    raw_data1 = bin[rd_ptr * 32 + 16 : rd_ptr * 32 + 32]
+                    # prep the storage to receive data
+                    reram_data0 = bytearray(16)
+                    reram_data1 = bytearray(16)
+                    # read in the bytes
+                    for index, b in enumerate(raw_data0):
+                        reram_data0[index] = b
+                    for index, b in enumerate(raw_data1):
+                        reram_data1[index] = b
+
+                    tex_writer.write_rram(rd_ptr, reram_data0, BANK_RRAM0)
+                    tex_writer.write_rram(rd_ptr + 16, reram_data1, BANK_RRAM1)
+
+                    tex_writer.verify_rram(rd_ptr, reram_data0, BANK_RRAM0)
+                    tex_writer.verify_rram(rd_ptr + 16, reram_data1, BANK_RRAM1)
+
+    # assume CP test if a .tex file is specified
+    elif ifile.endswith('tex'):
         tex_mode = True
         # process tex format
         cmds = 0
@@ -717,6 +967,7 @@ def main():
         current_group = None
         current_serial_no = None
         testname = 'Uninit'
+        bank = BANK_RRAM0 # default
         with open(ifile) as f:
             for line in f:
                 if line.startswith('#'):
@@ -766,7 +1017,7 @@ def main():
                         if current_group is not None:
                             current_test.append_group(current_group)
                         cp_tests += [current_test]
-                    current_test = CpTest(testname)
+                    current_test = CpTest(testname, bank)
                     current_group = JtagGroup()
                 elif line.startswith('Wait'):
                     # set a wait condition, which ends the group.
@@ -779,6 +1030,8 @@ def main():
                         current_test.append_group(current_group)
                         current_group = JtagGroup()
                     current_group.set_check(line.strip())
+                elif line.startswith('!bank'):
+                    bank = int(line.strip().split(' ')[1])
                 else:
                     # placeholder for doing stuff with comments, etc.
                     pass
@@ -792,6 +1045,7 @@ def main():
 
         for test in cp_tests:
             logging.info(f"Running {test.name}")
+            set_bank(test.bank)
             for jtg in test.groups:
                 if jtg.has_start():
                     logging.info(f"  Group {jtg.get_start()}-{jtg.get_end()}")
@@ -889,7 +1143,7 @@ def main():
 
         logging.info(f"CP test finished with {hard_errors} hard errors")
 
-    else:
+    elif ifile.endswith('jtg'):
         # CSV file format
         # chain, width, value:
         # IR, 6, 0b110110
@@ -947,6 +1201,11 @@ def main():
                     else:
                         jtag_legs.append([code, '%0*d' % (length, int(bin(value)[2:])), ' '])
         # logging.debug(jtag_legs)
+    else:
+        logging.error("Input file should end with one of .jtg, .tex, or .bin")
+        logging.error("  - .jtg files contain manual JTAG debugging commands")
+        logging.error("  - .tex files contain CP testing commands in TSMC format")
+        logging.error("  - .bin files are a binary image for uploading to RRAM")
 
     if args.reset_prog:
         reset_fpga()
