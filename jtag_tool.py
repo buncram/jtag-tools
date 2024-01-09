@@ -641,7 +641,7 @@ def set_bank(bank):
     global TMS_R0_pin, TDI_R0_pin, TDO_R0_pin
     global pins, USE_GPIO
     if bank == BANK_RRAM1:
-        logging.debug("Selecting RRAM1")
+        logging.info("Selecting RRAM1")
         if USE_GPIO:
             pins.tms = TMS_R1_pin
             pins.tdi = TDI_R1_pin
@@ -650,7 +650,7 @@ def set_bank(bank):
         TDI_pin = TDI_R1_pin
         TDO_pin = TDO_R1_pin
     else:
-        logging.debug("Selecting RRAM0")
+        logging.info("Selecting RRAM0")
         if USE_GPIO:
             pins.tms = TMS_R0_pin
             pins.tdi = TDI_R0_pin
