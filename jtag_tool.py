@@ -1,9 +1,15 @@
 #!/usr/bin/python3
 
-try:
-    import RPi.GPIO as GPIO
-except RuntimeError:
-    print("Error importing RPi.GPIO! Did you run as root?")
+import os
+
+if os.name == 'posix' and os.uname()[1] == 'raspberrypi':
+    try:
+        import RPi.GPIO as GPIO
+    except RuntimeError:
+        print("Error importing RPi.GPIO! Did you run as root?")
+    USE_GPIO = True
+else:
+    USE_GPIO = False
 
 import csv
 import argparse
@@ -91,35 +97,6 @@ class CpTest():
     def append_group(self, group):
         self.groups += [group]
 
-ffi = FFI()
-ffi.cdef("""
-typedef struct pindefs pindefs;
-struct pindefs {
-  uint32_t tck;
-  uint32_t tms;
-  uint32_t tdi;
-  uint32_t tdo;
-  uint32_t trst;
-};
-
-volatile uint32_t *pi_mmio_init(uint32_t base);
-int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio);
-int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio);
-void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
- """)
-
-found_libs = list(Path('.').glob('*.so'))
-if len(found_libs) == 0:
-    print('CFFI module not found, attempting to rebuild...')
-    ffi.set_source("gpioffi", '#include "gpio-ffi.h"', sources=["gpio-ffi.c"])
-    ffi.compile()
-    found_libs = list(Path('.').glob('*.so'))
-
-assert len(found_libs) == 1, "CFFI object file structure is wrong. Please clear any *.so and *.o files and re-run."
-
-keepalive = []
-gpioffi = ffi.dlopen('./' + found_libs[0].name)
-
 TCK_pin = 4
 TMS_pin = 17
 TDI_pin = 27  # TDI on FPGA, out for this script
@@ -127,20 +104,50 @@ TDO_pin = 22  # TDO on FPGA, in for this script
 PRG_pin = 24
 tex_mode = False
 
-pins = ffi.new("struct pindefs *")
-pins.tck = TCK_pin
-pins.tms = TMS_pin
-pins.tdi = TDI_pin
-pins.tdo = TDO_pin
-pins.trst = PRG_pin
-keepalive.append(pins)
+if USE_GPIO:
+    ffi = FFI()
+    ffi.cdef("""
+    typedef struct pindefs pindefs;
+    struct pindefs {
+    uint32_t tck;
+    uint32_t tms;
+    uint32_t tdi;
+    uint32_t tdo;
+    uint32_t trst;
+    };
 
-# maxbuf - maximum length, in bits, of a bitstream that can be handled by this script
-maxbuf = 20 * 1024 * 1024
-ffistr = ffi.new("char[]", bytes(maxbuf))
-keepalive.append(ffistr)
-ffiret = ffi.new("char[]", bytes(maxbuf))
-keepalive.append(ffiret)
+    volatile uint32_t *pi_mmio_init(uint32_t base);
+    int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio);
+    int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio);
+    void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
+    """)
+
+    found_libs = list(Path('.').glob('*.so'))
+    if len(found_libs) == 0:
+        print('CFFI module not found, attempting to rebuild...')
+        ffi.set_source("gpioffi", '#include "gpio-ffi.h"', sources=["gpio-ffi.c"])
+        ffi.compile()
+        found_libs = list(Path('.').glob('*.so'))
+
+    assert len(found_libs) == 1, "CFFI object file structure is wrong. Please clear any *.so and *.o files and re-run."
+
+    keepalive = []
+    gpioffi = ffi.dlopen('./' + found_libs[0].name)
+
+    pins = ffi.new("struct pindefs *")
+    pins.tck = TCK_pin
+    pins.tms = TMS_pin
+    pins.tdi = TDI_pin
+    pins.tdo = TDO_pin
+    pins.trst = PRG_pin
+    keepalive.append(pins)
+
+    # maxbuf - maximum length, in bits, of a bitstream that can be handled by this script
+    maxbuf = 20 * 1024 * 1024
+    ffistr = ffi.new("char[]", bytes(maxbuf))
+    keepalive.append(ffistr)
+    ffiret = ffi.new("char[]", bytes(maxbuf))
+    keepalive.append(ffiret)
 
 class JtagLeg(Enum):
     DR = 0
@@ -195,26 +202,34 @@ def int_to_binstr_bitwidth(n, bitwidth):
     return bin(n)[2:].zfill(bitwidth)
 
 def phy_sync(tdi, tms):
-    global TCK_pin, TMS_pin, TDI_pin, TDO_pin, pins, gpio_pointer, gpioffi
+    global USE_GPIO
+    if USE_GPIO:
+        global TCK_pin, TMS_pin, TDI_pin, TDO_pin, pins, gpio_pointer, gpioffi
 
-    if compat:
-        tdo = GPIO.input(TDO_pin) # grab the TDO value before the clock changes
+        if compat:
+            tdo = GPIO.input(TDO_pin) # grab the TDO value before the clock changes
 
-        GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
-        GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (1, tdi, tms) )
-        GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
+            GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
+            GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (1, tdi, tms) )
+            GPIO.output( (TCK_pin, TDI_pin, TMS_pin), (0, tdi, tms) )
+        else:
+            tdo = gpioffi.jtag_pins(tdi, tms, pins[0], gpio_pointer)
     else:
-        tdo = gpioffi.jtag_pins(tdi, tms, pins[0], gpio_pointer)
+        logging.debug(f"tdi: {tdi}, tms: {tms}")
+        tdo = 0
 
     return tdo
 
 def reset_fpga():
     global PRG_pin
+    global USE_GPIO
 
-    GPIO.output(PRG_pin, 0)
-    time.sleep(0.1)
-    GPIO.output(PRG_pin, 1)
-
+    if USE_GPIO:
+        GPIO.output(PRG_pin, 0)
+        time.sleep(0.1)
+        GPIO.output(PRG_pin, 1)
+    else:
+        logging.debug("FPGA reset")
 
 def decode_ir(ir):
     if not tex_mode:
@@ -361,11 +376,13 @@ def jtag_step():
     global tdo_vect, tdo_stash
     global do_pause
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin
-    global gpio_pointer, gpioffi, pins
     global keepalive
     global compat
     global readout
     global readdata
+    global USE_GPIO
+    if USE_GPIO:
+        global gpio_pointer, gpioffi, pins
 
     # logging.debug(state)
     if state == JtagState.TEST_LOGIC_RESET:
@@ -438,48 +455,57 @@ def jtag_step():
     elif state == JtagState.SHIFT:
         if cur_leg[0] == JtagLeg.DRC or cur_leg[0] == JtagLeg.DRS:
             if cur_leg[0] == JtagLeg.DRC: # duplicate code because we want speed (eliminating TDO readback is significant speedup)
-                if compat:
-                    GPIO.output((TCK_pin, TDI_pin), (0, 1))
-                    for bit in cur_leg[1][:-1]:
-                        if bit == '1':
-                            GPIO.output((TCK_pin, TDI_pin), (1, 1))
-                            GPIO.output((TCK_pin, TDI_pin), (0, 1))
-                        else:
-                            GPIO.output((TCK_pin, TDI_pin), (1, 0))
-                            GPIO.output((TCK_pin, TDI_pin), (0, 0))
-                else:
-                    bytestr = bytes(cur_leg[1][:-1], 'utf-8')
-                    ffi = FFI()
-                    ffistr = ffi.new("char[]", bytestr)
-                    keepalive.append(ffistr)  # need to make sure the lifetime of the string is long enough for the call
-                    gpioffi.jtag_prog(ffistr, pins[0], gpio_pointer)
-                    GPIO.output(TCK_pin, 0)  # restore this to 0, as jtag_prog() leaves TCK high when done
-            else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
-                if compat:
-                    GPIO.output((TCK_pin, TDI_pin), (0, 1))
-                    for bit in cur_leg[1][:-1]:
-                       if bit == '1':
-                          GPIO.output( (TCK_pin, TDI_pin), (1, 1) )
-                          GPIO.output( (TCK_pin, TDI_pin), (0, 1) )
-                       else:
-                          GPIO.output( (TCK_pin, TDI_pin), (1, 0) )
-                          GPIO.output( (TCK_pin, TDI_pin), (0, 0) )
-                    tdo = GPIO.input(TDO_pin)
-                    if tdo == 1 :
-                        tdo_vect = '1' + tdo_vect
+                if USE_GPIO:
+                    if compat:
+                        GPIO.output((TCK_pin, TDI_pin), (0, 1))
+                        for bit in cur_leg[1][:-1]:
+                            if bit == '1':
+                                GPIO.output((TCK_pin, TDI_pin), (1, 1))
+                                GPIO.output((TCK_pin, TDI_pin), (0, 1))
+                            else:
+                                GPIO.output((TCK_pin, TDI_pin), (1, 0))
+                                GPIO.output((TCK_pin, TDI_pin), (0, 0))
                     else:
-                        tdo_vect = '0' + tdo_vect
+                        bytestr = bytes(cur_leg[1][:-1], 'utf-8')
+                        ffi = FFI()
+                        ffistr = ffi.new("char[]", bytestr)
+                        keepalive.append(ffistr)  # need to make sure the lifetime of the string is long enough for the call
+                        gpioffi.jtag_prog(ffistr, pins[0], gpio_pointer)
+                        GPIO.output(TCK_pin, 0)  # restore this to 0, as jtag_prog() leaves TCK high when done
                 else:
                     bytestr = bytes(cur_leg[1][:-1], 'utf-8')
-                    tdo_temp = '0'*len(cur_leg[1][:-1]) # initialize space for tdo_vect
-                    retstr = bytes(tdo_temp, 'utf-8')
-                    ffi = FFI()
-                    ffistr = ffi.new("char[]", bytestr)
-                    ffiret = ffi.new("char[]", retstr)
-                    keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
-                    keepalive.append(ffiret)
-                    gpioffi.jtag_prog_rbk(ffistr, pins[0], gpio_pointer, ffiret)
-                    tdo_vect = ffi.string(ffiret).decode('utf-8')
+                    logging.debug(f"tdi <- {bytestr.hex()}")
+
+            else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
+                if USE_GPIO:
+                    if compat:
+                        GPIO.output((TCK_pin, TDI_pin), (0, 1))
+                        for bit in cur_leg[1][:-1]:
+                            if bit == '1':
+                                GPIO.output( (TCK_pin, TDI_pin), (1, 1) )
+                                GPIO.output( (TCK_pin, TDI_pin), (0, 1) )
+                            else:
+                                GPIO.output( (TCK_pin, TDI_pin), (1, 0) )
+                                GPIO.output( (TCK_pin, TDI_pin), (0, 0) )
+                        tdo = GPIO.input(TDO_pin)
+                        if tdo == 1 :
+                            tdo_vect = '1' + tdo_vect
+                        else:
+                            tdo_vect = '0' + tdo_vect
+                    else:
+                        bytestr = bytes(cur_leg[1][:-1], 'utf-8')
+                        tdo_temp = '0'*len(cur_leg[1][:-1]) # initialize space for tdo_vect
+                        retstr = bytes(tdo_temp, 'utf-8')
+                        ffi = FFI()
+                        ffistr = ffi.new("char[]", bytestr)
+                        ffiret = ffi.new("char[]", retstr)
+                        keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
+                        keepalive.append(ffiret)
+                        gpioffi.jtag_prog_rbk(ffistr, pins[0], gpio_pointer, ffiret)
+                        tdo_vect = ffi.string(ffiret).decode('utf-8')
+                else:
+                    bytestr = bytes(cur_leg[1][:-1], 'utf-8')
+                    logging.debug(f"tdi <- {bytestr.hex()}")
 
             state = JtagState.SHIFT
 
@@ -599,14 +625,17 @@ def auto_int(x):
     return int(x, 0)
 
 def main():
+    global USE_GPIO
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
     global jtag_legs, jtag_results
-    global gpio_pointer, pins, gpioffi
+    if USE_GPIO:
+        global gpio_pointer, pins, gpioffi
     global tex_mode
     global compat
     global use_key, nky_key, nky_iv, nky_hmac, use_fuzzer
 
-    GPIO.setwarnings(False)
+    if USE_GPIO:
+        GPIO.setwarnings(False)
 
     parser = argparse.ArgumentParser(description="Drive JTAG via Rpi GPIO")
     parser.add_argument(
@@ -654,23 +683,24 @@ def main():
     TMS_pin = args.tms
     PRG_pin = args.prg
 
-    rev = GPIO.RPI_INFO
-    if rev['P1_REVISION'] == 1:
-        gpio_pointer = gpioffi.pi_mmio_init(0x20000000)
-    elif rev['P1_REVISION'] == 3 or rev['P1_REVISION'] == 2:
-        gpio_pointer = gpioffi.pi_mmio_init(0x3F000000)
-    elif rev['P1_REVISION'] == 4:
-        gpio_pointer = gpioffi.pi_mmio_init(0xFE000000)
-    else:
-        logging.warning("Unknown Raspberry Pi rev, can't set GPIO base")
-        compat = True
+    if USE_GPIO:
+        rev = GPIO.RPI_INFO
+        if rev['P1_REVISION'] == 1:
+            gpio_pointer = gpioffi.pi_mmio_init(0x20000000)
+        elif rev['P1_REVISION'] == 3 or rev['P1_REVISION'] == 2:
+            gpio_pointer = gpioffi.pi_mmio_init(0x3F000000)
+        elif rev['P1_REVISION'] == 4:
+            gpio_pointer = gpioffi.pi_mmio_init(0xFE000000)
+        else:
+            logging.warning("Unknown Raspberry Pi rev, can't set GPIO base")
+            compat = True
 
-    GPIO.setmode(GPIO.BCM)
+        GPIO.setmode(GPIO.BCM)
 
-    GPIO.setup((TCK_pin, TMS_pin, TDI_pin), GPIO.OUT)
-    GPIO.setup(TDO_pin, GPIO.IN)
-    if args.reset_prog:
-        GPIO.setup(PRG_pin, GPIO.OUT)
+        GPIO.setup((TCK_pin, TMS_pin, TDI_pin), GPIO.OUT)
+        GPIO.setup(TDO_pin, GPIO.IN)
+        if args.reset_prog:
+            GPIO.setup(PRG_pin, GPIO.OUT)
 
     if ifile.endswith('tex'):
         tex_mode = True
@@ -846,13 +876,16 @@ def main():
                     # TODO: implement the wait routine. This is just a placeholder that is a guess
                     assert 'JTAG-TDO to fall' in jtg.get_wait(), "The wait condition did not match our expectation"
                     start_time = time.time()
-                    while GPIO.input(TDO_pin) != 0:
-                        if time.time() - start_time > TIMEOUT_S:
-                            logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
-                            hard_errors += 1
-                            break
-                        else:
-                            time.sleep(0.01)
+                    if USE_GPIO:
+                        while GPIO.input(TDO_pin) != 0:
+                            if time.time() - start_time > TIMEOUT_S:
+                                logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
+                                hard_errors += 1
+                                break
+                            else:
+                                time.sleep(0.01)
+                    else:
+                        logging.debug("Would wait for TDO_pin to go high")
 
         logging.info(f"CP test finished with {hard_errors} hard errors")
 
@@ -882,7 +915,8 @@ def main():
                 (chain != 'id') & (chain != 'irp') & (chain != 'ird') & (chain != 'drc') & \
                 (chain != 'drr') & (chain != 'drs'):
                     print('unknown chain type ', chain, ' aborting!')
-                    GPIO.cleanup()
+                    if USE_GPIO:
+                        GPIO.cleanup()
                     exit(1)
 
                 # logging.debug('found JTAG chain ', chain, ' with len ', str(length), ' and data ', hex(value))
@@ -923,8 +957,8 @@ def main():
 #        while len(jtag_results):
 #            result = jtag_result.pop()
             # printout happens in situ
-
-    GPIO.cleanup()
+    if USE_GPIO:
+        GPIO.cleanup()
     exit(0)
 
 from typing import Any, Iterable, Mapping, Optional, Set, Union
