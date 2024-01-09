@@ -3,3 +3,6 @@
 *.so
 gpioffi.c
 __pycache__/
+
+# don't check in proprietary TEX files
+*.tex
