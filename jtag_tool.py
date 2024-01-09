@@ -77,7 +77,7 @@ class JtagGroup():
     def get_wait(self):
         return self.test['wait']
     # A "check" only applies to the *first* command in a JtagGroup's list of JTAG commands.
-    # Thus each group can only have at most one check conditio, and it is always executed
+    # Thus each group can only have at most one check condition, and it is always executed
     # immediately after the first JTAG DR command.
     def has_check(self):
         return self.test['check'] != ''
@@ -665,7 +665,10 @@ class TexWriter():
         self.cmd_number = 0
 
     def write_cmd(self, cmd):
-        self.obin.write(f"#{self.cmd_number}, {cmd}\n")
+        if 'expected DR data' in cmd:
+            self.obin.write(f"#{self.cmd_number}, {cmd}\n")
+        else:
+            self.obin.write(f"#{self.cmd_number}, {cmd}, expected DR data:(40'h0000000000)\n")
         self.cmd_number += 1
     def write_comment(self, comment):
         self.obin.write(f"// {comment}\n")
@@ -673,11 +676,12 @@ class TexWriter():
         self.obin.write(f"@@@ {name}\n")
     def write_wait_tdo(self):
         self.obin.write("Wait for JTAG-TDO to fall and Check Status\n")
+        self.obin.write("Check OUTPUT DR bit[X]\n")
     def set_bank(self, bank):
         self.obin.write(f"!bank {bank}\n")
     def write_rram(self, address, data, bank):
         self.set_bank(bank)
-        self.write_testname(f'Write single word {int.from_bytes(data, "little"):32x} w/ECC ON at address 0x{address:x}')
+        self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
@@ -767,7 +771,7 @@ class TexWriter():
         for rd_ptr in range(0, 16, 4):
             self.write_comment(f"set debug_bist_grpsel=0x0, R_BIST_debug_bist_grpdata[31:0] = macro_dout[{(rd_ptr+4) * 8 - 1}:{rd_ptr * 8}]")
             checkaddr = 0x2000 | (rd_ptr // 4) << 16
-            self.write_cmd(f"RW JTAG-REG, IR={{6'h14,2'b10}}(addr:('h14)), DR data:(40'h{checkaddr:10x})")
+            self.write_cmd(f"RW JTAG-REG, IR={{6'h14,2'b10}}(addr:('h14)), DR data:(40'h{checkaddr:010x})")
             self.write_comment(f"User outpus R_BIST_debug_bist_grpdata[{(rd_ptr+1) * 8 - 1}:{rd_ptr * 8}] to TDO during DRSHIFT")
             checkword = int.from_bytes(checkdata[rd_ptr:rd_ptr + 4], 'little')
             self.write_cmd(f"RW JTAG-REG, IR={{6'h15,2'b10}}(addr:('h15)), DR data:(40'h0000000000), expected DR data:(40'h{checkword:010x})")
@@ -867,12 +871,11 @@ def main():
 
     # convert 'bin' to 'tex'
     if ifile.endswith('.bin'):
-        cmd_cnt = 0
         with open(ifile, 'rb') as ibin:
             with open(ifile[:-4] + '.tex', 'w') as obin:
                 tex_writer = TexWriter(obin)
-                bin = ibin.read()
-                assert len(bin) % (256 // 8) == 0, "Input file must be padded to a 32-byte boundary"
+                binary = ibin.read()
+                assert len(binary) % (256 // 8) == 0, "Input file must be padded to a 32-byte boundary"
                 rd_ptr = 0
                 # per spec:
 
@@ -932,10 +935,10 @@ def main():
                 #   reram_data0: u128 = 0x0000_0000_0000_0000_0000_0000_0000_00C0
 
                 # stride through the input file in 256-bit chunks: 32*8 = 256
-                for rd_ptr in range(0, len(bin), 32):
+                for rd_ptr in range(0, len(binary), 32):
                     # split into the two 128-bit sections
-                    raw_data0 = bin[rd_ptr * 32 : rd_ptr * 32 + 16]
-                    raw_data1 = bin[rd_ptr * 32 + 16 : rd_ptr * 32 + 32]
+                    raw_data0 = binary[rd_ptr : rd_ptr + 16]
+                    raw_data1 = binary[rd_ptr + 16 : rd_ptr + 32]
                     # prep the storage to receive data
                     reram_data0 = bytearray(16)
                     reram_data1 = bytearray(16)
