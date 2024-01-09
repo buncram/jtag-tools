@@ -47,11 +47,6 @@ volatile uint32_t *pi_mmio_init(uint32_t base) {
 #define GPIO_CLR *(gpio+10) // clears bits which are 1 ignores bits which are 0
 #define GPIO_LVL *(gpio+13)
 
-#define TCK_PIN 4
-#define TMS_PIN 17
-#define TDI_PIN 27
-#define TDO_PIN 22
-
 /// Clock tck with TDI, TMS values, and return the value of TDO.
 int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio) {
 
