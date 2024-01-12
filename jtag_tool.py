@@ -681,7 +681,7 @@ class TexWriter():
         self.obin.write(f"!bank {bank}\n")
     def write_rram(self, address, data, bank):
         self.set_bank(bank)
-        self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}')
+        self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}, bank{bank}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
@@ -713,12 +713,12 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000414)")
         # write addresses
         y_address = (address & 0b11_1110_0000) >> 5
-        self.write_comment(f"User inputs WRITE Y address = 0x{y_address:x} (DR bit[23:16])")
+        self.write_comment(f"User inputs WRITE Y address = 0x{y_address:x} (DR bit[23:16]), bank{bank}")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{(y_address << 16) | 3:010x})")
         self.write_comment("User issues BIST LOAD command and, starts bist_run")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000602c80)")
         x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
-        self.write_comment(f"User inputs WRITE X address = 0x{x_address:x} (DR bit[15:0])")
+        self.write_comment(f"User inputs WRITE X address = 0x{x_address:x} (DR bit[15:0]), bank{bank}")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{x_address:010x})")
         self.write_comment("User inputs WRITE # of loop=0x0")
         self.write_cmd("RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)")
@@ -737,7 +737,7 @@ class TexWriter():
         x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
         y_address = (address & 0b11_1110_0000) >> 5
         self.set_bank(bank)
-        self.write_testname(f'Verify single word w/ECC ON at address 0x{address:x}')
+        self.write_testname(f'Verify single word w/ECC ON at address 0x{address:x} bank{bank}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
@@ -756,7 +756,7 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
         # read addresses
         bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
-        self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}) (DR bit[23:0])")
+        self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}, bank{bank}) (DR bit[23:0])")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{bank_address:010x})")
         # issue read command
         self.write_comment(f"User inputs READ # of loop=0x0")
