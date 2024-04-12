@@ -1,4 +1,6 @@
+#first release march 4th - 0.0.1
 #!/usr/bin/python3
+
 
 import os
 
@@ -18,14 +20,18 @@ import logging
 import sys
 import re
 
+
 from enum import Enum
 from cffi import FFI
 
 from pathlib import Path
+Path("./logs/").mkdir(parents=True, exist_ok=True)
 
 TIMEOUT_S = 5  # default timeout, in seconds
 BANK_RRAM0 = 0
 BANK_RRAM1 = 1
+BANK_RRAMS = 2
+BANK_IPT   = 3
 
 # Tracks a group of tests. Groups are defined as some consecutive number of JTAG operations
 # that are not a different "test" *and* do not require any wait or check condition.
@@ -42,8 +48,10 @@ class JtagGroup():
             'legs' : [],
             'wait' : '',
             'check': '',
+            'debug': 0,
         }
         self.dr_vals = {} # dictionary of test serial numbers to expected DR values
+        self.dbg_state = {} # dictionary of test serial numbers to expected DR values
 
     def has_start(self):
         if self.test['start'] < 0:
@@ -89,6 +97,16 @@ class JtagGroup():
         self.dr_vals[serial_no] = dr_val_as_int
     def lookup_dr_val(self, serial_no):
         return self.dr_vals[serial_no]
+    def set_debug(self):
+        self.test['debug'] = 1
+    def clear_debug(self):
+        self.test['debug'] = 0
+    def get_debug(self):
+        return self.test['debug']
+    def add_dbg_state(self, serial_no, dr_val_as_int):
+        self.dbg_state[serial_no] = dr_val_as_int
+    def lookup_dbg_state(self, serial_no):
+        return self.dbg_state[serial_no]
 
 # CpTest is a structure for collecting several groups together into a single named test.
 class CpTest():
@@ -113,6 +131,12 @@ TMS_R0_pin = 17
 TDI_R1_pin = 9
 TDO_R1_pin = 11
 TMS_R1_pin = 10
+# ipt
+TDI_IPT_pin = 6
+TDO_IPT_pin = 13
+TMS_IPT_pin = 5
+
+DBG_pin = 14
 tex_mode = False
 
 if USE_GPIO:
@@ -121,16 +145,27 @@ if USE_GPIO:
     typedef struct pindefs pindefs;
     struct pindefs {
     uint32_t tck;
-    uint32_t tms;
-    uint32_t tdi;
-    uint32_t tdo;
+    uint32_t tms_r0;
+    uint32_t tdi_r0;
+    uint32_t tdo_r0;
+    uint32_t tms_r1;
+    uint32_t tdi_r1;
+    uint32_t tdo_r1;
     uint32_t trst;
+    uint32_t dbg;
     };
 
     volatile uint32_t *pi_mmio_init(uint32_t base);
-    int jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio);
+    char jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio);
+    void jtag_cycle_clk(pindefs pins, volatile uint32_t *gpio, int cycles);
+    void set_dbg(pindefs pins, volatile uint32_t *gpio);
+    void clear_dbg(pindefs pins, volatile uint32_t *gpio);
     int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio);
     void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
+
+    int gpioInitialise(void);
+    void startClock(void);
+    void stopClock(void);
     """)
 
     found_libs = list(Path('.').glob('*.so'))
@@ -147,10 +182,11 @@ if USE_GPIO:
 
     pins = ffi.new("struct pindefs *")
     pins.tck = TCK_pin
-    pins.tms = TMS_pin
-    pins.tdi = TDI_pin
-    pins.tdo = TDO_pin
+    pins.tms_r0 = TMS_pin
+    pins.tdi_r0 = TDI_pin
+    pins.tdo_r0 = TDO_pin
     pins.trst = PRG_pin
+    pins.dbg =  DBG_pin
     keepalive.append(pins)
 
     # maxbuf - maximum length, in bits, of a bitstream that can be handled by this script
@@ -186,9 +222,11 @@ class JtagState(Enum):
 state = JtagState.RUN_TEST_IDLE
 cur_leg = []
 jtag_legs = []
-tdo_vect = ''
+tdo_vect_r0 = ''
+tdo_vect_r1 = ''
 tdo_stash = ''
-jtag_results = []
+jtag_results_r0 = []
+jtag_results_r1 = []
 do_pause = False
 gpio_pointer = 0
 compat = False
@@ -239,6 +277,7 @@ def reset_fpga():
         GPIO.output(PRG_pin, 0)
         time.sleep(0.1)
         GPIO.output(PRG_pin, 1)
+        print("resetting JTAG...")
     else:
         logging.debug("FPGA reset")
 
@@ -383,8 +422,9 @@ def jtag_step():
     global state
     global cur_leg
     global jtag_legs
-    global jtag_results
-    global tdo_vect, tdo_stash
+    global jtag_results_r0
+    global jtag_results_r1
+    global tdo_vect_r0, tdo_vect_r1, tdo_stash
     global do_pause
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin
     global keepalive
@@ -460,7 +500,8 @@ def jtag_step():
 
     elif state == JtagState.CAPTURE:
         phy_sync(0, 0)
-        tdo_vect = ''  # prep the tdo_vect to receive data
+        tdo_vect_r0 = ''  # prep the tdo_vect_r0 to receive data
+        tdo_vect_r1 = ''
         state = JtagState.SHIFT
 
     elif state == JtagState.SHIFT:
@@ -500,12 +541,12 @@ def jtag_step():
                                 GPIO.output( (TCK_pin, TDI_pin), (0, 0) )
                         tdo = GPIO.input(TDO_pin)
                         if tdo == 1 :
-                            tdo_vect = '1' + tdo_vect
+                            tdo_vect_r0 = '1' + tdo_vect_r0
                         else:
-                            tdo_vect = '0' + tdo_vect
+                            tdo_vect_r0 = '0' + tdo_vect_r0
                     else:
                         bytestr = bytes(cur_leg[1][:-1], 'utf-8')
-                        tdo_temp = '0'*len(cur_leg[1][:-1]) # initialize space for tdo_vect
+                        tdo_temp = '0'*len(cur_leg[1][:-1]) # initialize space for tdo_vect_r0
                         retstr = bytes(tdo_temp, 'utf-8')
                         ffi = FFI()
                         ffistr = ffi.new("char[]", bytestr)
@@ -513,7 +554,7 @@ def jtag_step():
                         keepalive.append(ffistr) # need to make sure the lifetime of the string is long enough for the call
                         keepalive.append(ffiret)
                         gpioffi.jtag_prog_rbk(ffistr, pins[0], gpio_pointer, ffiret)
-                        tdo_vect = ffi.string(ffiret).decode('utf-8')
+                        tdo_vect_r0 = ffi.string(ffiret).decode('utf-8')
                 else:
                     bytestr = bytes(cur_leg[1][:-1], 'utf-8')
                     logging.debug(f"tdi <- {bytestr.hex()}")
@@ -527,9 +568,15 @@ def jtag_step():
             cur_leg = ''
             tdo = phy_sync(tdi, 1)
             if tdo == 1:
-                tdo_vect = '1' + tdo_vect
+                tdo_vect_r0 = '1' + tdo_vect_r0
             else:
-                tdo_vect = '0' + tdo_vect
+                tdo_vect_r0 = '0' + tdo_vect_r0
+
+            if (tdo & 0x10) == 1:
+                tdo_vect_r1 = '1' + tdo_vect_r1
+            else:
+                tdo_vect_r1 = '0' + tdo_vect_r1
+
             state = JtagState.EXIT1
             logging.debug('leaving config')
 
@@ -541,10 +588,16 @@ def jtag_step():
                     tdi = 0
                 cur_leg[1] = cur_leg[1][:-1]
                 tdo = phy_sync(tdi, 0)
-                if tdo == 1:
-                    tdo_vect = '1' + tdo_vect
+                if tdo[0] == 1 or tdo[0] == 17:
+                    tdo_vect_r0 = '1' + tdo_vect_r0
                 else:
-                    tdo_vect = '0' + tdo_vect
+                    tdo_vect_r0 = '0' + tdo_vect_r0
+
+                if tdo[0] == 16 or tdo[0] == 17:
+                    tdo_vect_r1 = '1' + tdo_vect_r1
+                else:
+                    tdo_vect_r1 = '0' + tdo_vect_r1
+
                 state = JtagState.SHIFT
             else: # this is the last item
                 if cur_leg[1][0] == '1':
@@ -553,14 +606,20 @@ def jtag_step():
                     tdi = 0
                 cur_leg = ''
                 tdo = phy_sync(tdi, 1)
-                if tdo == 1:
-                    tdo_vect = '1' + tdo_vect
+                if tdo[0] == 1 or tdo[0] == 17:
+                    tdo_vect_r0 = '1' + tdo_vect_r0
                 else:
-                    tdo_vect = '0' + tdo_vect
+                    tdo_vect_r0 = '0' + tdo_vect_r0
+
+                if tdo[0] == 16 or tdo[0] == 17:
+                    tdo_vect_r1 = '1' + tdo_vect_r1
+                else:
+                    tdo_vect_r1 = '0' + tdo_vect_r1
+ 
                 state = JtagState.EXIT1
 
     elif state == JtagState.EXIT1:
-        tdo_stash = tdo_vect
+        tdo_stash = tdo_vect_r0
         if do_pause:
            phy_sync(0, 0)
            state = JtagState.PAUSE
@@ -580,13 +639,21 @@ def jtag_step():
         state = JtagState.UPDATE
 
     elif state == JtagState.UPDATE:
-        jtag_results.append(int(tdo_vect, 2)) # interpret the vector and save it
-        logging.debug("result: %s", str(hex(int(tdo_vect, 2))) )
+        jtag_results_r0.append(int(tdo_vect_r0, 2)) # interpret the vector and save it
+        logging.debug("result: %s", str(hex(int(tdo_vect_r0, 2))) )
         if readout:
-            #print('readout: 0x{:08x}'.format( int(tdo_vect, 2) ) )
-            readdata = int(tdo_vect, 2)
+            #print('readout: 0x{:08x}'.format( int(tdo_vect_r0, 2) ) )
+            readdata = int(tdo_vect_r0, 2)
             readout = False
-        tdo_vect = ''
+        tdo_vect_r0 = ''
+
+        jtag_results_r1.append(int(tdo_vect_r1, 2)) # interpret the vector and save it
+        logging.debug("result: %s", str(hex(int(tdo_vect_r1, 2))) )
+#        if readout:
+#            #print('readout: 0x{:08x}'.format( int(tdo_vect_r1, 2) ) )
+#            readdata = int(tdo_vect_r1, 2)
+ #           readout = False
+        tdo_vect_r1 = ''
 
         # handle case of "shortcut" to DR
         if len(jtag_legs):
@@ -613,7 +680,8 @@ def jtag_step():
 
 def jtag_next():
     global state
-    global jtag_results
+    global jtag_results_r0
+    global jtag_results_r1
 
     if state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
         if len(jtag_legs):
@@ -640,21 +708,51 @@ def set_bank(bank):
     global TMS_R1_pin, TDI_R1_pin, TDO_R1_pin
     global TMS_R0_pin, TDI_R0_pin, TDO_R0_pin
     global pins, USE_GPIO
-    if bank == BANK_RRAM1:
-        logging.info("Selecting RRAM1")
+    if bank == BANK_RRAMS:
+        logging.info("Selecting both RRAMS")
         if USE_GPIO:
-            pins.tms = TMS_R1_pin
-            pins.tdi = TDI_R1_pin
-            pins.tdo = TDO_R1_pin
+            pins.tms_r1 = TMS_R1_pin
+            pins.tdi_r1 = TDI_R1_pin
+            pins.tdo_r1 = TDO_R1_pin
+            pins.tms_r0 = TMS_R0_pin
+            pins.tdi_r0 = TDI_R0_pin
+            pins.tdo_r0 = TDO_R0_pin
         TMS_pin = TMS_R1_pin
         TDI_pin = TDI_R1_pin
         TDO_pin = TDO_R1_pin
+    elif bank == BANK_RRAM1:
+        logging.info("Selecting RRAM1")
+        if USE_GPIO:
+            pins.tms_r1 = TMS_R1_pin
+            pins.tdi_r1 = TDI_R1_pin
+            pins.tdo_r1 = TDO_R1_pin
+            pins.tms_r0 = 0
+            pins.tdi_r0 = 0
+            pins.tdo_r0 = 0
+        TMS_pin = TMS_R1_pin
+        TDI_pin = TDI_R1_pin
+        TDO_pin = TDO_R1_pin
+    elif bank == BANK_IPT:
+        logging.info("Selecting IPT")
+        if USE_GPIO:
+            pins.tms_r1 = 0
+            pins.tdi_r1 = 0
+            pins.tdo_r1 = 0
+            pins.tms_r0 = TMS_IPT_pin
+            pins.tdi_r0 = TDI_IPT_pin
+            pins.tdo_r0 = TDO_IPT_pin
+        TMS_pin = TMS_IPT_pin
+        TDI_pin = TDI_IPT_pin
+        TDO_pin = TDO_IPT_pin
     else:
         logging.info("Selecting RRAM0")
         if USE_GPIO:
-            pins.tms = TMS_R0_pin
-            pins.tdi = TDI_R0_pin
-            pins.tdo = TDO_R0_pin
+            pins.tms_r1 = 0
+            pins.tdi_r1 = 0
+            pins.tdo_r1 = 0
+            pins.tms_r0 = TMS_R0_pin
+            pins.tdi_r0 = TDI_R0_pin
+            pins.tdo_r0 = TDO_R0_pin
         TMS_pin = TMS_R0_pin
         TDI_pin = TDI_R0_pin
         TDO_pin = TDO_R0_pin
@@ -681,7 +779,7 @@ class TexWriter():
         self.obin.write(f"!bank {bank}\n")
     def write_rram(self, address, data, bank):
         self.set_bank(bank)
-        self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}')
+        self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}, bank{bank}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
@@ -713,12 +811,12 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000414)")
         # write addresses
         y_address = (address & 0b11_1110_0000) >> 5
-        self.write_comment(f"User inputs Write Y address = 0x{y_address:x} (DR bit[23:16])")
+        self.write_comment(f"User inputs WRITE Y address = 0x{y_address:x} (DR bit[23:16]), bank{bank}")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{(y_address << 16) | 3:010x})")
         self.write_comment("User issues BIST LOAD command and, starts bist_run")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000602c80)")
         x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
-        self.write_comment(f"User inputs WRITE X address = 0x{x_address:x} (DR bit[15:0])")
+        self.write_comment(f"User inputs WRITE X address = 0x{x_address:x} (DR bit[15:0]), bank{bank}")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{x_address:010x})")
         self.write_comment("User inputs WRITE # of loop=0x0")
         self.write_cmd("RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)")
@@ -734,8 +832,10 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a), expected DR data:(40'h000000000a)")
 
     def verify_rram(self, address, checkdata, bank):
+        x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
+        y_address = (address & 0b11_1110_0000) >> 5
         self.set_bank(bank)
-        self.write_testname(f'Verify single word w/ECC ON at address 0x{address:x}')
+        self.write_testname(f'Verify single word w/ECC ON at address 0x{address:x} bank{bank}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)")
@@ -753,8 +853,9 @@ class TexWriter():
         self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
         self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
         # read addresses
-        self.write_comment(f"User inputs read address = 0x{address:x} (DR bit[23:0])")
-        self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{address:010x})")
+        bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
+        self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}, bank{bank}) (DR bit[23:0])")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{bank_address:010x})")
         # issue read command
         self.write_comment(f"User inputs READ # of loop=0x0")
         self.write_cmd(f"RW JTAG-REG, IR={{6'h10,2'b10}}(addr:('h10)), DR data:(40'h0000000000)")
@@ -780,7 +881,7 @@ class TexWriter():
 def main():
     global USE_GPIO
     global TCK_pin, TMS_pin, TDI_pin, TDO_pin, PRG_pin
-    global jtag_legs, jtag_results
+    global jtag_legs, jtag_results_r0, jtag_results_r1
     if USE_GPIO:
         global gpio_pointer, pins, gpioffi
     global tex_mode
@@ -828,13 +929,20 @@ def main():
         '--trst', type=int, help="Specify TRST GPIO. Defaults to 24", default=24
     )
     parser.add_argument(
+        '--dbg_p', type=int, help="Specify TRST GPIO. Defaults to 24", default=14
+    )
+    parser.add_argument(
         "-r", "--reset-prog", help="Pull the PROG pin before initiating any commands", default=False, action="store_true"
     )
+    parser.add_argument(
+        "-b", "--bank", type=int, help="Specify which bank to use. Default to 0", default=0
+    )
+
     args = parser.parse_args()
     if args.debug:
-        logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+        logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s",handlers=[logging.FileHandler("./logs/" + args.file + ".log"),logging.StreamHandler()], level=logging.DEBUG)
     else:
-        logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+        logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s",handlers=[logging.FileHandler("./logs/" + args.file + ".log"),logging.StreamHandler()], level=logging.INFO)
 
     ifile = args.file
     compat = args.compat
@@ -847,13 +955,20 @@ def main():
     TDI_R1_pin = args.tdi_r1
     TDO_R1_pin = args.tdo_r1
     TMS_R1_pin = args.tms_r1
+    DBG_pin = args.dbg_p
+    bank = args.bank
+
+    assert bank <= BANK_IPT, "a correct bank should be given"
 
     if USE_GPIO:
         rev = GPIO.RPI_INFO
+        print("revision is: " + str(rev["P1_REVISION"]))
         if rev['P1_REVISION'] == 1:
             gpio_pointer = gpioffi.pi_mmio_init(0x20000000)
         elif rev['P1_REVISION'] == 3 or rev['P1_REVISION'] == 2:
             gpio_pointer = gpioffi.pi_mmio_init(0x3F000000)
+            gpioffi.gpioInitialise()
+            gpioffi.stopClock()
         elif rev['P1_REVISION'] == 4:
             gpio_pointer = gpioffi.pi_mmio_init(0xFE000000)
         else:
@@ -862,12 +977,17 @@ def main():
 
         GPIO.setmode(GPIO.BCM)
 
-        GPIO.setup((TCK_pin, TMS_pin, TDI_pin), GPIO.OUT)
+        GPIO.setup((TCK_pin, TMS_R0_pin, TDI_R0_pin), GPIO.OUT)
         GPIO.setup((TCK_pin, TMS_R1_pin, TDI_R1_pin), GPIO.OUT)
-        GPIO.setup(TDO_pin, GPIO.IN)
+        GPIO.setup((TCK_pin, TMS_IPT_pin, TDI_IPT_pin), GPIO.OUT)
+        GPIO.setup(TDO_R0_pin, GPIO.IN)
         GPIO.setup(TDO_R1_pin, GPIO.IN)
-        if args.reset_prog:
-            GPIO.setup(PRG_pin, GPIO.OUT)
+        GPIO.setup(TDO_IPT_pin, GPIO.IN)
+        GPIO.setup(PRG_pin, GPIO.OUT)
+        GPIO.setup(DBG_pin, GPIO.OUT)
+
+        GPIO.output(PRG_pin, 1)
+        GPIO.output(DBG_pin, 0)
 
     # convert 'bin' to 'tex'
     if ifile.endswith('.bin'):
@@ -962,7 +1082,7 @@ def main():
         # first "test" is a reset command to the scan chain
         reset_jtag_group = JtagGroup()
         reset_jtag_group.test['legs'] = [[JtagLeg.RS, '0', '0']] # special-case override to insert a reset command
-        reset_jtag_cp_test = CpTest('Reset JTAG')
+        reset_jtag_cp_test = CpTest('Reset JTAG', bank)
         reset_jtag_cp_test.append_group(reset_jtag_group)
 
         cp_tests = [reset_jtag_cp_test]
@@ -970,50 +1090,93 @@ def main():
         current_group = None
         current_serial_no = None
         testname = 'Uninit'
-        bank = BANK_RRAM0 # default
+        #bank = BANK_RRAM0 # default
         with open(ifile) as f:
             for line in f:
                 if line.startswith('#'):
                     cmd = line.split(', ')
-                    if len(cmd) != 5:
+                    if len(cmd) != 5 and len(cmd) != 4:
                         logging.error(f".tex command did not conform to expected format! Ignoring: {line}")
                     else:
-                        # extract serial number, and check it
-                        new_serial_no = int(cmd[0].lstrip('#'))
-                        if current_serial_no is not None:
-                            assert new_serial_no == current_serial_no + 1, "Test serial numbers are not uniformly increasing!"
-                        current_serial_no = new_serial_no
+                        if bank == BANK_IPT:
+                            # extract serial number, and check it
+                            new_serial_no = int(cmd[0].lstrip('#'))
+                            if current_serial_no is not None:
+                                assert new_serial_no == current_serial_no + 1, "Test serial numbers are not uniformly increasing!"
+                            current_serial_no = new_serial_no
 
-                        # track start-to-end serials, mostly for debugging
-                        if not current_group.has_start():
-                            current_group.set_start(current_serial_no)
-                        # start == end if there is just one test!
-                        current_group.set_end(current_serial_no) # we keep updating the "end" test with the last test seen. Not efficient but easy...
-                        assert cmd[1] == 'RW JTAG-REG', "Unexpected JTAG command, this is a hard error. Script needs to be updated to handle all commands!"
+                            # track start-to-end serials, mostly for debugging
+                            if not current_group.has_start():
+                                current_group.set_start(current_serial_no)
+                            # start == end if there is just one test!
+                            # i think we can set end test when we see a =========
+                            current_group.set_end(current_serial_no) # we keep updating the "end" test with the last test seen. Not efficient but easy...
+                            assert cmd[1] == 'RW JTAG-REG', "Unexpected JTAG command, this is a hard error. Script needs to be updated to handle all commands!"
 
-                        # parse the IR, add it to the JTAG legs
-                        ir_regex = re.compile('IR=\{(.*),(.*)\}')
-                        ir_hex = ir_regex.match(cmd[2])[1]
-                        if ir_regex.match(cmd[2])[2] != "2'b10":
-                            logging.debug(line)
-                        assert ir_regex.match(cmd[2])[2] == "2'b10", "IR second argument was not 2'b10: extend the parser to handle this case"
-                        ir_val = int(ir_hex.lstrip("6'h"), base=16)
-                        ir_val <<= 2
-                        ir_val |= 0b10 # easy enough to extend the parser to handle other cases, but since we only ever see 2'b10 in practice...
-                        current_group.append_leg([JtagLeg.IR, '%0*d' % (8, int(bin(ir_val)[2:])), ' ']) # note hard-coded value of 6 for the IR length!
+                            # parse the IR, add it to the JTAG legs
+                            ir_regex = re.compile("IR=\((.*)\)")
+                            ir_hex = ir_regex.match(cmd[2])[1]
+                            current_group.append_leg([JtagLeg.IR, '%0*d' % (5, int(bin(int(ir_hex.lstrip("5'h"), 16))[2:])), ' '])
 
-                        # parse the DR going from host to chip, add it to the JTAG legs
-                        dr_regex = re.compile("DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
-                        dr_hex = dr_regex.match(cmd[3])[1]
-                        current_group.append_leg([JtagLeg.DR, '%0*d' % (40, int(bin(int(dr_hex, 16))[2:])), ' ']) # note the hard-coded 40-bit length here!
+                            # parse the DR going from host to chip, add it to the JTAG legs
+                            dr_regex = re.compile("DR data:\(61'h([0-9A-Fa-f]*)\)") # very narrow rule because we want to catch if the value isn't 61'h
+                            dr_hex = dr_regex.match(cmd[3])[1]
+                            current_group.append_leg([JtagLeg.DR, '%0*d' % (61, int(bin(int(dr_hex, 16))[2:])), ' ']) # note the hard-coded 40-bit length here!
 
-                        # parse the DR coming from chip to host, add it to the dr_vals tracker
-                        dre_regex = re.compile("expected DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
-                        dre_hex = dre_regex.match(cmd[4])[1]
-                        current_group.add_dr_val(current_serial_no, int(dre_hex, 16))
+                            if len(cmd) == 5:
+                                # parse the DR coming from chip to host, add it to the dr_vals tracker
+                                dre_regex = re.compile("expected DR data:\(61'h([0-9A-Fa-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
+                                dre_hex = dre_regex.match(cmd[4])[1]
+                                current_group.add_dr_val(current_serial_no, int(dre_hex, 16))
+                            else:
+                                current_group.add_dr_val(current_serial_no, 'x')
 
-                        # track total commands seen as a sanity check
-                        cmds += 1
+                            current_group.add_dbg_state(current_serial_no, current_group.get_debug())
+                            # track total commands seen as a sanity check
+                            cmds += 1
+                        else:
+                            # extract serial number, and check it
+                            new_serial_no = int(cmd[0].lstrip('#'))
+                            if current_serial_no is not None:
+                                assert new_serial_no == current_serial_no + 1, "Test serial numbers are not uniformly increasing!"
+                            current_serial_no = new_serial_no
+
+                            # track start-to-end serials, mostly for debugging
+                            if not current_group.has_start():
+                                current_group.set_start(current_serial_no)
+                            # start == end if there is just one test!
+                            # i think we can set end test when we see a =========
+                            current_group.set_end(current_serial_no) # we keep updating the "end" test with the last test seen. Not efficient but easy...
+                            assert cmd[1] == 'RW JTAG-REG', "Unexpected JTAG command, this is a hard error. Script needs to be updated to handle all commands!"
+
+                            # parse the IR, add it to the JTAG legs
+                            ir_regex = re.compile('IR=\{(.*),(.*)\}')
+                            ir_hex = ir_regex.match(cmd[2])[1]
+                            # if ir_regex.match(cmd[2])[2] != "2'b10":
+                            #     logging.debug(line)
+                            # assert ir_regex.match(cmd[2])[2] == "2'b10", "IR second argument was not 2'b10: extend the parser to handle this case"
+                            ir_val = int(ir_hex.lstrip("6'h"), base=16)
+                            ir_val <<= 2
+                            # ir_val |= 0b10 # easy enough to extend the parser to handle other cases, but since we only ever see 2'b10 in practice...
+                            ir_val += int(ir_regex.match(cmd[2])[2].lstrip("2'b"), base=2)
+
+                            current_group.append_leg([JtagLeg.IR, '%0*d' % (8, int(bin(ir_val)[2:])), ' ']) # note hard-coded value of 6 for the IR length!
+
+                            # parse the DR going from host to chip, add it to the JTAG legs
+                            dr_regex = re.compile("DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
+                            dr_hex = dr_regex.match(cmd[3])[1]
+                            current_group.append_leg([JtagLeg.DR, '%0*d' % (40, int(bin(int(dr_hex, 16))[2:])), ' ']) # note the hard-coded 40-bit length here!
+                            if len(cmd) == 5:
+                                # parse the DR coming from chip to host, add it to the dr_vals tracker
+                                dre_regex = re.compile("expected DR data:\(40'h([0-9a-f]*)\)") # very narrow rule because we want to catch if the value isn't 40'h
+                                dre_hex = dre_regex.match(cmd[4])[1]
+                                current_group.add_dr_val(current_serial_no, int(dre_hex, 16))
+                            else:
+                                current_group.add_dr_val(current_serial_no, 'x')
+
+                            current_group.add_dbg_state(current_serial_no, current_group.get_debug())
+                            # track total commands seen as a sanity check
+                            cmds += 1
                 elif line.startswith('@@@'):
                     testname = line.strip()
                     if current_test is not None:
@@ -1034,7 +1197,11 @@ def main():
                         current_group = JtagGroup()
                     current_group.set_check(line.strip())
                 elif line.startswith('!bank'):
-                    bank = int(line.strip().split(' ')[1])
+                   bank = int(line.strip().split(' ')[1])
+                elif line.startswith('!trigger_h'):
+                   current_group.set_debug()
+                elif line.startswith('!trigger_l'):
+                   current_group.clear_debug()
                 else:
                     # placeholder for doing stuff with comments, etc.
                     pass
@@ -1045,6 +1212,7 @@ def main():
 
         logging.info(f"found {cmds} commands")
         hard_errors = 0
+        DR_errors = 0
 
         for test in cp_tests:
             logging.info(f"Running {test.name}")
@@ -1062,6 +1230,15 @@ def main():
                 while len(jtag_legs) > 0:
                         if state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
                             if len(jtag_legs):
+
+                                gpioffi.stopClock()
+
+                                if test_index > 0:
+                                    if jtg.lookup_dbg_state(test_index):
+                                        gpioffi.set_dbg(pins[0], gpio_pointer)
+                                    else:
+                                        gpioffi.clear_dbg(pins[0], gpio_pointer)
+
                                 if jtg.has_start():
                                     expected_data = jtg.lookup_dr_val(test_index)
                                     test_index += 1
@@ -1086,40 +1263,91 @@ def main():
                                     while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
                                         jtag_step()
 
+                                gpioffi.startClock()
+
                                 if expected_data is not None:
                                     # at this point, jtag_result should have our result if we were in a DR leg
                                     # print(jtag_results)
-                                    assert len(jtag_results) == 2, "Consistency error in number of results returned"
-                                    if jtag_results[1] != expected_data:
-                                        logging.warning(f"    Expected data 0x{expected_data:x} != result 0x{jtag_results[1]:x}")
+
+                                    if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
+                                        assert len(jtag_results_r0) == 2, "Consistency error in number of results returned"
+                                    if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
+                                        assert len(jtag_results_r1) == 2, "Consistency error in number of results returned on td0 rram1"
+
+                                    if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
+                                        if expected_data == 'x':
+                                            logging.info(f"    Test:{test_index-1} Passed! Ignoring TDO")  
+                                        elif jtag_results_r0[1] != expected_data:
+                                            logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r0[1]:x}")
+                                            DR_errors += 1
+                                        else:
+                                            logging.info(f"    Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r0[1]:x}")
+                                    if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
+                                        if expected_data == 'x':
+                                            logging.info(f"    Test:{test_index-1} Passed! Ignoring TDO") 
+                                        elif jtag_results_r1[1] != expected_data:
+                                            logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r1[1]:x}")
+                                            DR_errors += 1
+                                        else:
+                                            logging.info(f"    Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r1[1]:x}")
                                     if first_leg:
                                         if jtg.has_check():
                                             check_statement = jtg.get_check()
                                             if '[X]' not in check_statement:
                                                 # all check statements want to confirm that the busy bit is not set (bit 1)
                                                 start_time = time.time()
-                                                while (jtag_results[1] & 1) != 0:
-                                                    logging.warning(f"    BIST is still busy, trying again")
-                                                    if time.time() - start_time > TIMEOUT_S:
-                                                        logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
-                                                        hard_errors += 1
-                                                        break
-                                                    # can't point to the reference in check_wait_cmds because the references are destroyed
-                                                    jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
-                                                    jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
-                                                    # reset jtag_results
-                                                    jtag_results = []
-                                                    # rerun the poll loop
-                                                    while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
-                                                        jtag_step()
-                                                    while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
-                                                        jtag_step()
+                                                if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
+                                                    while (jtag_results_r0[1] & 1) != 0:
+                                                        logging.warning(f"    BIST is still busy, trying again")
+                                                        if time.time() - start_time > TIMEOUT_S:
+                                                            logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
+                                                            hard_errors += 1
+                                                            break
+                                                        # can't point to the reference in check_wait_cmds because the references are destroyed
+                                                        jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
+                                                        jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
+                                                        # reset jtag_results
+                                                        jtag_results_r0 = []
+                                                        # rerun the poll loop
+                                                        while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
+                                                            jtag_step()
+                                                        while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
+                                                            jtag_step()
+                                                    logging.info(f"    Check Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r0[1]:x}")
+                                                elif(test.bank==BANK_RRAM1):
+                                                    while (jtag_results_r1[1] & 1) != 0:
+                                                        logging.warning(f"    BIST is still busy, trying again")
+                                                        if time.time() - start_time > TIMEOUT_S:
+                                                            logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
+                                                            hard_errors += 1
+                                                            break
+                                                        # can't point to the reference in check_wait_cmds because the references are destroyed
+                                                        jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
+                                                        jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
+                                                        # reset jtag_results
+                                                        jtag_results_r1 = []
+                                                        # rerun the poll loop
+                                                        while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
+                                                            jtag_step()
+                                                        while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
+                                                            jtag_step()
+                                                    logging.info(f"    Check Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r1[1]:x}")
                                             else:
-                                                if jtag_results[1] != expected_data:
-                                                    logging.error(f"    All-bit check of DR return value failed.")
-                                                    hard_errors += 1
+                                                if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
+                                                    if jtag_results_r0[1] != expected_data:
+                                                        logging.error(f"    All-bit check of DR return value failed.")
+                                                        hard_errors += 1
+                                                if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
+                                                    if jtag_results_r1[1] != expected_data:
+                                                        logging.error(f"    All-bit check of DR return value failed.")
+                                                        hard_errors += 1                                                       
+
                                         first_leg = False
-                                    jtag_results = []
+
+                                    jtag_results_r0 = []
+                                    jtag_results_r1 = []
+
+
                             else:
                                 # this should do nothing
                                 jtag_step()
@@ -1131,20 +1359,43 @@ def main():
                 # no more legs, check and see if we had a wait or check condition!
                 if jtg.has_wait():
                     # TODO: implement the wait routine. This is just a placeholder that is a guess
-                    assert 'JTAG-TDO to fall' in jtg.get_wait(), "The wait condition did not match our expectation"
-                    start_time = time.time()
-                    if USE_GPIO:
-                        while GPIO.input(TDO_pin) != 0:
-                            if time.time() - start_time > TIMEOUT_S:
-                                logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
-                                hard_errors += 1
-                                break
-                            else:
-                                time.sleep(0.01)
-                    else:
-                        logging.debug("Would wait for TDO_pin to go high")
+                    # assert 'JTAG-TDO to fall' in jtg.get_wait(), "The wait condition did not match our expectation"
+                    if 'JTAG-TDO to fall' in jtg.get_wait():
+                        start_time = time.time()
+                        if USE_GPIO:
+                            while GPIO.input(TDO_pin) != 0:
+                                if time.time() - start_time > TIMEOUT_S:
+                                    logging.error("    TIMEOUT FAILURE waiting for JTAG-TDO to fall. Test failed.")
+                                    hard_errors += 1
+                                    break
+                        else:
+                            logging.debug("Would wait for TDO_pin to go high")
+                    elif 'seconds' in jtg.get_wait():
 
-        logging.info(f"CP test finished with {hard_errors} hard errors")
+                        start_time = time.time()
+
+                        wait = jtg.get_wait().split(' ')
+                        assert 3 ==len(wait), "the wait condition did not match our expectations"
+
+                        print("waiting for " + wait[1] + " seconds")
+                        stop_time = start_time + int(wait[1])
+                        if USE_GPIO:
+                            time.sleep(int(wait[1]))
+                        else:
+                            logging.debug("Would wait for TDO_pin to go high")
+                    elif 'for keypress' in jtg.get_wait():
+
+                        start_time = time.time()
+
+                        wait = jtg.get_wait().split(' ')
+                        assert 3 ==len(wait), "the wait condition did not match our expectations"
+
+                        input("press enter to continue...")
+                    else:
+                        assert "no matching wait"
+
+        logging.info(f"Test finished with {hard_errors} Check[x] or timeout errors")
+        logging.info(f"Test finished with {DR_errors} expected DR errors")
 
     elif ifile.endswith('jtg'):
         # CSV file format
@@ -1216,11 +1467,8 @@ def main():
         # time.sleep(0.002) # give 2 ms between each command
         jtag_next()
 
-#        while len(jtag_results):
-#            result = jtag_result.pop()
-            # printout happens in situ
     if USE_GPIO:
-        GPIO.cleanup()
+        GPIO.cleanup((TCK_pin, TMS_R0_pin, TDI_R0_pin, TMS_R1_pin, TDI_R1_pin, TMS_IPT_pin, TDI_IPT_pin, TDO_R0_pin, TDO_R1_pin, TDO_IPT_pin, DBG_pin))
     exit(0)
 
 from typing import Any, Iterable, Mapping, Optional, Set, Union
