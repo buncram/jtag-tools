@@ -1469,6 +1469,7 @@ def main():
 
     if USE_GPIO:
         GPIO.cleanup((TCK_pin, TMS_R0_pin, TDI_R0_pin, TMS_R1_pin, TDI_R1_pin, TMS_IPT_pin, TDI_IPT_pin, TDO_R0_pin, TDO_R1_pin, TDO_IPT_pin, DBG_pin))
+        GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
     exit(0)
 
 from typing import Any, Iterable, Mapping, Optional, Set, Union
