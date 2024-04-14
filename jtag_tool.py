@@ -763,6 +763,9 @@ class TexWriter():
         self.cmd_number = 0
 
     def write_cmd(self, cmd):
+        self.obin.write(f"#{self.cmd_number}, {cmd}\n")
+        self.cmd_number += 1
+        return
         if 'expected DR data' in cmd:
             self.obin.write(f"#{self.cmd_number}, {cmd}\n")
         else:
@@ -799,14 +802,19 @@ class TexWriter():
         self.write_comment("clear write data buffer")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)")
         # write data
+        check_word = None
         for wr_ptr in range(0, 16, 4):
             self.write_comment(f"User loads data buffer [{(wr_ptr+4) * 8 - 1}:{wr_ptr * 8}]")
             word = int.from_bytes(data[wr_ptr:wr_ptr + 4], 'little')
-            self.write_cmd(f"RW JTAG-REG, IR={{6'h02,2'b10}}(addr:('h02)), DR data:(40'h{word:010x})")
+            if check_word:
+                self.write_cmd(f"RW JTAG-REG, IR={{6'h02,2'b10}}(addr:('h02)), DR data:(40'h{word:010x}), expected DR data:(40'h{check_word:010x})")
+            else:
+                self.write_cmd(f"RW JTAG-REG, IR={{6'h02,2'b10}}(addr:('h02)), DR data:(40'h{word:010x})")
+            check_word = word
             self.write_comment(f"User selects buffer {wr_ptr // 4} to load buffer data")
             self.write_cmd(f"RW JTAG-REG, IR={{6'h09,2'b10}}(addr:('h09)), DR data:(40'h{0x410 + wr_ptr // 4:010x})")
         self.write_comment("User loads data buffer[143:128] = 0x0000 (DR bit[15:0]) = Don't Care w/ ECC ON")
-        self.write_cmd("RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h02,2'b10}}(addr:('h02)), DR data:(40'h0000000000), expected DR data:(40'h{check_word:010x})")
         self.write_comment("User selects buffer 4 to load buffer data")
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000414)")
         # write addresses
@@ -829,7 +837,7 @@ class TexWriter():
         self.write_comment("Read out bit[6]=bist_write_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)")
         # check this return address
         self.write_wait_tdo()
-        self.write_cmd("RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a), expected DR data:(40'h000000000a)")
+        self.write_cmd("RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a)") # , expected DR data:(40'h000000000e) # LSB (busy) bit changes
 
     def verify_rram(self, address, checkdata, bank):
         x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
@@ -867,7 +875,7 @@ class TexWriter():
         self.write_cmd(f"RW JTAG-REG, IR={{6'h06,2'b10}}(addr:('h06)), DR data:(40'h000060c880)")
         self.write_comment(f"Read out bit[10]=bist_read_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)")
         self.write_wait_tdo()
-        self.write_cmd(f"RW JTAG-REG, IR={{6'h0b,2'b10}}(addr:('h0b)), DR data:(40'h000000000a), expected DR data:(40'h000000000a)")
+        self.write_cmd(f"RW JTAG-REG, IR={{6'h0b,2'b10}}(addr:('h0b)), DR data:(40'h000000000a)") #, , expected DR data:(40'h000000000a)") # LSB (busy) bit changes
         # get read data
         for rd_ptr in range(0, 16, 4):
             self.write_comment(f"set debug_bist_grpsel=0x0, R_BIST_debug_bist_grpdata[31:0] = macro_dout[{(rd_ptr+4) * 8 - 1}:{rd_ptr * 8}]")
@@ -1219,7 +1227,7 @@ def main():
             set_bank(test.bank)
             for jtg in test.groups:
                 if jtg.has_start():
-                    logging.info(f"  Group {jtg.get_start()}-{jtg.get_end()}")
+                    logging.debug(f"  Group {jtg.get_start()}-{jtg.get_end()}")
                 # gets gross here, because this is assigned to a global variable, jtag_legs...
                 jtag_legs = jtg.get_legs()
                 test_index = jtg.get_start()
@@ -1276,7 +1284,7 @@ def main():
 
                                     if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
                                         if expected_data == 'x':
-                                            logging.info(f"    Test:{test_index-1} Passed! Ignoring TDO")  
+                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO")  
                                         elif jtag_results_r0[1] != expected_data:
                                             logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r0[1]:x}")
                                             DR_errors += 1
@@ -1284,7 +1292,7 @@ def main():
                                             logging.info(f"    Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r0[1]:x}")
                                     if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
                                         if expected_data == 'x':
-                                            logging.info(f"    Test:{test_index-1} Passed! Ignoring TDO") 
+                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO") 
                                         elif jtag_results_r1[1] != expected_data:
                                             logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r1[1]:x}")
                                             DR_errors += 1
@@ -1333,13 +1341,16 @@ def main():
                                                             jtag_step()
                                                     logging.info(f"    Check Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r1[1]:x}")
                                             else:
+                                                # I think this is not actually a hard error: the [X] actually means to ignore the result.
                                                 if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
                                                     if jtag_results_r0[1] != expected_data:
-                                                        logging.error(f"    All-bit check of DR return value failed.")
+                                                        if type(expected_data) == int:
+                                                            logging.debug(f"    All-bit check of DR return value failed: {jtag_results_r0[1]:x} != {expected_data:x}.")
                                                         hard_errors += 1
                                                 if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
                                                     if jtag_results_r1[1] != expected_data:
-                                                        logging.error(f"    All-bit check of DR return value failed.")
+                                                        if type(expected_data) == int:
+                                                            logging.debug(f"    All-bit check of DR return value failed: {jtag_results_r0[1]:x} != {expected_data:x}.")
                                                         hard_errors += 1                                                       
 
                                         first_leg = False
