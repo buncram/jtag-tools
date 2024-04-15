@@ -945,6 +945,9 @@ def main():
     parser.add_argument(
         "-b", "--bank", type=int, help="Specify which bank to use. Default to 0", default=0
     )
+    parser.add_argument(
+        "--offset", type=int, help="Offset of file to write", default=0x20_0000
+    )
 
     args = parser.parse_args()
     if args.debug:
@@ -1076,11 +1079,11 @@ def main():
                     for index, b in enumerate(raw_data1):
                         reram_data1[index] = b
 
-                    tex_writer.write_rram(rd_ptr, reram_data0, BANK_RRAM0)
-                    tex_writer.write_rram(rd_ptr + 16, reram_data1, BANK_RRAM1)
+                    tex_writer.write_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0)
+                    tex_writer.write_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1)
 
-                    tex_writer.verify_rram(rd_ptr, reram_data0, BANK_RRAM0)
-                    tex_writer.verify_rram(rd_ptr + 16, reram_data1, BANK_RRAM1)
+                    tex_writer.verify_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0)
+                    tex_writer.verify_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1)
 
     # assume CP test if a .tex file is specified
     elif ifile.endswith('tex'):
