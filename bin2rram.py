@@ -10,7 +10,7 @@ import hashlib
 from progressbar.bar import ProgressBar
 
 def run_tool(args, check_str=None, debug=False):
-    result = subprocess.run(['sudo', 'python3', './jtag_tool.py', ] + args, capture_output=True, text=True)
+    result = subprocess.run(['sudo', 'python3', './jtag_tool.py', '-r', ] + args, capture_output=True, text=True)
 
     if check_str is not None:
         passing = False
@@ -39,7 +39,7 @@ def burn(binfile):
             if match:
                 last_test = int(match.group(1))
     print(f"Processing tex file with {last_test} commands:")
-    
+
     process = subprocess.Popen(['sudo', 'python3', './jtag_tool.py', '-f', binfile], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
     progress = ProgressBar(min_value=0, max_value=last_test, prefix='Writing...').start()
@@ -68,6 +68,9 @@ def burn(binfile):
     else:
         print("No errors found")
 
+def auto_int(x):
+    return int(x, 0)
+
 def main():
     parser = argparse.ArgumentParser(description="Program RRAM with a binary file")
     parser.add_argument(
@@ -75,6 +78,9 @@ def main():
     )
     parser.add_argument(
         "-d", "--debug", help="turn on debugging spew", default=False, action="store_true"
+    )
+    parser.add_argument(
+        "--offset", type=auto_int, help="Offset of file to write", default=0x20_0000
     )
 
     args = parser.parse_args()
@@ -101,12 +107,12 @@ def main():
          exit(1)
 
     print("Checking scan chain...")
-    if not run_tool(['-f', './ipt_read_id.tex'], check_str='Test:0 Passed! Expected: 0x10102001 = result: 0x10102001'):
+    if not run_tool(['-f', './ipt_read_id.tex', '-r'], check_str='Test:0 Passed! Expected: 0x10102001 = result: 0x10102001'):
         print("Chip not in test mode, check SW4-1")
         exit(1)
 
-    print("Converting file...")
-    if not run_tool(['-f', args.file]):
+    print(f"Converting file to load at {args.offset:x}...")
+    if not run_tool(['-f', args.file, '--offset', f'{args.offset}']):
         print("Couln't convert binary file")
         exit(1)
 
