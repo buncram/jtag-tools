@@ -27,6 +27,7 @@ def run_tool(args, check_str=None, debug=False):
                 print(line)
     else:
         passing = False
+        print(result.stderr)
 
     return passing
 
@@ -68,6 +69,24 @@ def burn(binfile):
     else:
         print("No errors found")
 
+def pad_to_boundary(file_path, boundary=32):
+    with open(file_path, 'rb') as file:
+        content = file.read()
+
+        # Calculate the padding needed
+        padding_length = boundary - (len(content) % boundary)
+
+        # If content length is already aligned, no padding needed
+        if padding_length == boundary:
+            return
+
+        # Add padding
+        padding = b'\x00' * padding_length
+
+        # Write the padded content to a new file
+        with open(file_path, 'wb') as padded_file:
+            padded_file.write(content + padding)
+   
 def auto_int(x):
     return int(x, 0)
 
@@ -110,6 +129,8 @@ def main():
     if not run_tool(['-f', './ipt_read_id.tex', '-r'], check_str='Test:0 Passed! Expected: 0x10102001 = result: 0x10102001'):
         print("Chip not in test mode, check SW4-1")
         exit(1)
+
+    pad_to_boundary(args.file, boundary=32)
 
     print(f"Converting file to load at {args.offset:x}...")
     if not run_tool(['-f', args.file, '--offset', f'{args.offset}']):
