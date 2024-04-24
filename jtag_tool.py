@@ -798,7 +798,7 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
         self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
-        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
         self.write_comment("clear write data buffer")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)")
         # write data
@@ -859,7 +859,7 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
         self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
-        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
         # read addresses
         bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
         self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}, bank{bank}) (DR bit[23:0])")
@@ -885,6 +885,8 @@ class TexWriter():
             checkword = int.from_bytes(checkdata[rd_ptr:rd_ptr + 4], 'little')
             self.write_cmd(f"RW JTAG-REG, IR={{6'h15,2'b10}}(addr:('h15)), DR data:(40'h0000000000), expected DR data:(40'h{checkword:010x})")
 
+def auto_int(x):
+    return int(x, 0)
 
 def main():
     global USE_GPIO
@@ -946,7 +948,7 @@ def main():
         "-b", "--bank", type=int, help="Specify which bank to use. Default to 0", default=0
     )
     parser.add_argument(
-        "--offset", type=int, help="Offset of file to write", default=0x20_0000
+        "--offset", type=auto_int, help="Offset of file to write", default=0x20_0000
     )
 
     args = parser.parse_args()
