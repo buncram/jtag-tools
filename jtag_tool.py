@@ -780,7 +780,7 @@ class TexWriter():
         self.obin.write("Check OUTPUT DR bit[X]\n")
     def set_bank(self, bank):
         self.obin.write(f"!bank {bank}\n")
-    def write_rram(self, address, data, bank):
+    def write_rram(self, address, data, bank, region='main'):
         self.set_bank(bank)
         self.write_testname(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}, bank{bank}')
         self.write_cmd("RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)")
@@ -798,6 +798,12 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
         self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
+        if region == 'info':
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        elif region == 'ifren1':
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000008)")
+        else: # assume main are
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
         self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
         self.write_comment("clear write data buffer")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)")
@@ -839,7 +845,7 @@ class TexWriter():
         self.write_wait_tdo()
         self.write_cmd("RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a)") # , expected DR data:(40'h000000000e) # LSB (busy) bit changes
 
-    def verify_rram(self, address, checkdata, bank):
+    def verify_rram(self, address, checkdata, bank, region='main'):
         x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
         y_address = (address & 0b11_1110_0000) >> 5
         self.set_bank(bank)
@@ -859,7 +865,12 @@ class TexWriter():
         self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)")
         self.write_cmd("RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)")
         self.write_comment("select main array/INFO/redundancy/INFO1 area for write")
-        self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
+        if region == 'info':
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000002)")
+        elif region == 'ifren1':
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000008)")
+        else: # assume main are
+            self.write_cmd("RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)")
         # read addresses
         bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
         self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}, bank{bank}) (DR bit[23:0])")
@@ -946,6 +957,9 @@ def main():
     )
     parser.add_argument(
         "-b", "--bank", type=int, help="Specify which bank to use. Default to 0", default=0
+    )
+    parser.add_argument(
+        "--region", choices=['main', 'info', 'ifren1'], default='main'
     )
     parser.add_argument(
         "--offset", type=auto_int, help="Offset of file to write", default=0x20_0000
@@ -1081,11 +1095,11 @@ def main():
                     for index, b in enumerate(raw_data1):
                         reram_data1[index] = b
 
-                    tex_writer.write_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0)
-                    tex_writer.write_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1)
+                    tex_writer.write_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0, args.region)
+                    tex_writer.write_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1, args.region)
 
-                    tex_writer.verify_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0)
-                    tex_writer.verify_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1)
+                    tex_writer.verify_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0, args.region)
+                    tex_writer.verify_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1, args.region)
 
     # assume CP test if a .tex file is specified
     elif ifile.endswith('tex'):
