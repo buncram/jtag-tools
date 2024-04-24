@@ -615,7 +615,7 @@ def jtag_step():
                     tdo_vect_r1 = '1' + tdo_vect_r1
                 else:
                     tdo_vect_r1 = '0' + tdo_vect_r1
- 
+
                 state = JtagState.EXIT1
 
     elif state == JtagState.EXIT1:
@@ -1289,7 +1289,7 @@ def main():
 
                                     if(test.bank==BANK_RRAM0 or test.bank==BANK_RRAMS or test.bank==BANK_IPT):
                                         if expected_data == 'x':
-                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO")  
+                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO")
                                         elif jtag_results_r0[1] != expected_data:
                                             logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r0[1]:x}")
                                             DR_errors += 1
@@ -1297,7 +1297,7 @@ def main():
                                             logging.info(f"    Test:{test_index-1} Passed! Expected: 0x{expected_data:x} = result: 0x{jtag_results_r0[1]:x}")
                                     if(test.bank==BANK_RRAM1 or test.bank==BANK_RRAMS):
                                         if expected_data == 'x':
-                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO") 
+                                            logging.debug(f"    Test:{test_index-1} Passed! Ignoring TDO")
                                         elif jtag_results_r1[1] != expected_data:
                                             logging.error(f"    Test:{test_index-1} Failed! Expected: 0x{expected_data:x} != result: 0x{jtag_results_r1[1]:x}")
                                             DR_errors += 1
@@ -1356,7 +1356,7 @@ def main():
                                                     if jtag_results_r1[1] != expected_data:
                                                         if type(expected_data) == int:
                                                             logging.debug(f"    All-bit check of DR return value failed: {jtag_results_r0[1]:x} != {expected_data:x}.")
-                                                        hard_errors += 1                                                       
+                                                        hard_errors += 1
 
                                         first_leg = False
 
