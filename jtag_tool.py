@@ -959,10 +959,16 @@ def main():
         "-b", "--bank", type=int, help="Specify which bank to use. Default to 0", default=0
     )
     parser.add_argument(
-        "--region", choices=['main', 'info', 'ifren1'], default='main'
+        "--region", help="Which region to target .tex generation. Has no effect in other modes.", choices=['main', 'info', 'ifren1'], default='main'
     )
     parser.add_argument(
         "--offset", type=auto_int, help="Offset of file to write", default=0x20_0000
+    )
+    parser.add_argument(
+        "--no-verify", help="Suppress RRAM verification in .tex file generation. No effect if executing a pre-generated .tex file.", default=False, action="store_true"
+    )
+    parser.add_argument(
+        "--no-pad", help="Suppress automatic file padding in .tex generation", default=False, action="store_true"
     )
 
     args = parser.parse_args()
@@ -1022,6 +1028,10 @@ def main():
             with open(ifile[:-4] + '.tex', 'w') as obin:
                 tex_writer = TexWriter(obin)
                 binary = ibin.read()
+                if not args.no_pad:
+                    padding_length = 32 - (len(binary) % 32)
+                    if padding_length != 0:
+                        binary = binary + b'\x00' * padding_length
                 assert len(binary) % (256 // 8) == 0, "Input file must be padded to a 32-byte boundary"
                 rd_ptr = 0
                 # per spec:
