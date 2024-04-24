@@ -1107,9 +1107,9 @@ def main():
 
                     tex_writer.write_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0, args.region)
                     tex_writer.write_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1, args.region)
-
-                    tex_writer.verify_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0, args.region)
-                    tex_writer.verify_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1, args.region)
+                    if not args.no_verify:
+                        tex_writer.verify_rram(rd_ptr + args.offset, reram_data0, BANK_RRAM0, args.region)
+                        tex_writer.verify_rram(rd_ptr + 16 + args.offset, reram_data1, BANK_RRAM1, args.region)
 
     # assume CP test if a .tex file is specified
     elif ifile.endswith('tex'):
