@@ -21,6 +21,8 @@ void set_dbg(pindefs pins, volatile uint32_t *gpio);
 void clear_dbg(pindefs pins, volatile uint32_t *gpio);
 int jtag_prog(char *bitstream, pindefs pins, volatile uint32_t *gpio);
 void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
+uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
+void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
 
 int gpioInitialise(void);
 void startClock(void);

@@ -577,3 +577,110 @@ void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char 
     i++;
   }
 }
+
+/// Clock tck with TDI, TMS values, and return the value of TDO.
+void jtag_pins_no_tdo(int tdi, int tms, pindefs pins, volatile uint32_t *gpio) {
+  GPIO_CLR = 1 << pins.tck;
+
+  if(tdi){
+    if(pins.tdi_r0 > 0) GPIO_SET = 1 << pins.tdi_r0;
+    if(pins.tdi_r1 > 0) GPIO_SET = 1 << pins.tdi_r1;
+  }else{
+    if(pins.tdi_r0 > 0) GPIO_CLR = 1 << pins.tdi_r0;
+    if(pins.tdi_r1 > 0) GPIO_CLR = 1 << pins.tdi_r1;
+  }
+
+  if(tms){
+    if(pins.tms_r0 > 0) GPIO_SET = 1 << pins.tms_r0;
+    if(pins.tms_r1 > 0) GPIO_SET = 1 << pins.tms_r1;
+  }else{
+    if(pins.tms_r0 > 0) GPIO_CLR = 1 << pins.tms_r0;
+    if(pins.tms_r1 > 0) GPIO_CLR = 1 << pins.tms_r1;
+  }
+  //adding delay (hard to do hard timing on OS)
+  volatile int t = 5;
+  while(t>0)
+    t--;
+
+  GPIO_SET = 1 << pins.tck;
+}
+
+/// 8-bit IR, fixed-width register shift
+/// Enters from Idle
+/// leaves in DR-Scan state
+uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   uint8_t ret = 0;
+   // idle -> select IR-scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // select IR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-IR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop, from LSB to MSB
+   for(int i = 0; i < 8; i++) {
+      if (i != 7) {
+         jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+      } else {
+         // last item gets TMS = 1
+         jtag_pins_no_tdo(ir & 1, 1, pins, gpio);
+      }
+      ir >>= 1;
+      ret >>= 1;
+      if (bank) {
+         ret |= (GPIO_LVL & (1 << pins.tdo_r1)) ? 0x80 : 0;
+      } else {
+         ret |= (GPIO_LVL & (1 << pins.tdo_r0)) ? 0x80 : 0;
+      }
+   }
+   // Exit1 -> Update-IR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-IR -> DR-Scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   return ret;
+}
+
+/// 40-bit DR, fixed-width register shift
+/// Assumes entry from DR-scan
+/// Leaves in Idle state
+/// 32 bit LSB is in dr_io[0]
+/// 8 bit MSB is in dr_io[1]
+void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   uint32_t dr_io[2] = {dr_lsb, dr_msb};
+   // select DR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-DR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop
+   uint32_t limit = 32;
+   uint32_t ret = 0;
+   for (uint32_t j = 0; j < 2; j++) {
+      uint32_t dr = dr_io[j];
+      if (j == 0) {
+         limit = 32;
+      } else {
+         limit = 8;
+      }
+      for (uint32_t i = 0; i < limit; i++) {
+         if (!((i == 7) && (j == 1))) {
+            jtag_pins_no_tdo(dr & 1, 0, pins, gpio);
+         } else {
+            // last item gets TMS = 1
+            jtag_pins_no_tdo(dr & 1, 1, pins, gpio);
+         }
+         dr >>= 1;
+         ret >>= 1;
+         if (bank) {
+            ret |= (GPIO_LVL & (1 << pins.tdo_r1)) ? 0x80000000 : 0;
+         } else {
+            ret |= (GPIO_LVL & (1 << pins.tdo_r0)) ? 0x80000000 : 0;
+         }
+      }
+      ret_data[j] = ret;
+      ret = 0;
+   }
+   // Exit1 -> Update-DR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-DR -> Idle
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+}
