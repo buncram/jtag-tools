@@ -907,25 +907,6 @@ class TexExecutor():
         reset_jtag_cp_test.append_group(reset_jtag_group)
         exec_test(reset_jtag_cp_test)
 
-    def write_cmd(self, cmd):
-        self.obin.write(f"#{self.cmd_number}, {cmd}\n")
-        self.cmd_number += 1
-        return
-        if 'expected DR data' in cmd:
-            self.obin.write(f"#{self.cmd_number}, {cmd}\n")
-        else:
-            self.obin.write(f"#{self.cmd_number}, {cmd}, expected DR data:(40'h0000000000)\n")
-        self.cmd_number += 1
-    def write_comment(self, comment):
-        self.obin.write(f"// {comment}\n")
-    def write_testname(self, name):
-        self.obin.write(f"@@@ {name}\n")
-    def write_wait_tdo(self):
-        self.obin.write("Wait for JTAG-TDO to fall and Check Status\n")
-        self.obin.write("Check OUTPUT DR bit[X]\n")
-    def set_bank(self, bank):
-        self.obin.write(f"!bank {bank}\n")
-
     # repeats the IR/DR pair in check_wait_cmds until TDO drops
     def wait_tdo(self, bank, check_wait_cmds):
         global jtag_legs, state, jtag_results_r0, jtag_results_r1
