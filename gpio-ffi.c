@@ -489,11 +489,11 @@ void jtag_cycle_clk(pindefs pins, volatile uint32_t *gpio, int cycles) {
     GPIO_CLR = 1 << pins.tck;
 
     while(tiks > 0){
-      tiks--; 
+      tiks--;
     }
 
     GPIO_SET = 1 << pins.tck;
-    
+
     while(tiks < 20){
       tiks++;
     }
@@ -503,7 +503,7 @@ void jtag_cycle_clk(pindefs pins, volatile uint32_t *gpio, int cycles) {
     // clock_gettime(CLOCK_REALTIME, &current);
 
     // while(current.tv_nsec - start.tv_nsec < PULSE){
-    //   clock_gettime(CLOCK_REALTIME, &current); 
+    //   clock_gettime(CLOCK_REALTIME, &current);
     // }
 
     // clock_gettime(CLOCK_REALTIME, &start);
