@@ -157,7 +157,7 @@ def initAXP223(do_print=False):
         if do_print:
             print(f'*({addr:02x}) = {data:02x}')
         bus.write_byte_data(AXP223_ADDR, addr, data)
-        
+
 def main():
     TCK_pin = 4
     PRG_pin = 24
@@ -175,7 +175,7 @@ def main():
         parsedata(buf)
     else:
         print("Device is already configured")
-    
+
 if __name__ == "__main__":
     main()
     exit(0)
