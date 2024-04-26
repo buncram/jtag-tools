@@ -1441,7 +1441,7 @@ def main():
     if USE_GPIO:
         GPIO.setwarnings(False)
 
-    parser = argparse.ArgumentParser(description="Drive JTAG via Rpi GPIO")
+    parser = argparse.ArgumentParser(description="Fast JTAG RRAM burner")
     parser.add_argument(
         "-f", "--file", required=True, help="a file ending in .jtg, .bin, or .tex. Operation is dispatched based on the extension: manual jtag commands for .jtg, firmware upload for .bin, and CP testing for .tex", type=str
     )
