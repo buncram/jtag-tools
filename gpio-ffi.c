@@ -637,6 +637,11 @@ uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_
    jtag_pins_no_tdo(0, 1, pins, gpio);
    // Update-IR -> DR-Scan
    jtag_pins_no_tdo(0, 1, pins, gpio);
+
+   // drop TMS in case of spurious clock
+   if(pins.tms_r0 > 0) GPIO_CLR = 1 << pins.tms_r0;
+   if(pins.tms_r1 > 0) GPIO_CLR = 1 << pins.tms_r1;
+
    return ret;
 }
 
