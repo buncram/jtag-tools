@@ -28,6 +28,9 @@ from cffi import FFI
 from pathlib import Path
 Path("./logs/").mkdir(parents=True, exist_ok=True)
 
+import axp223
+import smbus
+
 TIMEOUT_S = 5  # default timeout, in seconds
 BANK_RRAM0 = 0
 BANK_RRAM1 = 1
@@ -139,6 +142,9 @@ TMS_IPT_pin = 5
 
 DBG_pin = 14
 tex_mode = False
+
+AORST_pin = 21
+WMS2_pin = 20
 
 if USE_GPIO:
     ffi = FFI()
@@ -1036,6 +1042,7 @@ class TexExecutor():
         global keepalive
         assert(state == JtagState.RUN_TEST_IDLE)
 
+        passing = True
         expected_data = None
         # meet the entry condition for binary states
         result_data = self.ffi.new("uint32_t[]", 2)
@@ -1051,12 +1058,14 @@ class TexExecutor():
             if expected_data is not None:
                 if self.result != expected_data:
                     logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
+                    passing = False
                 else:
                     logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
 
         gpioffi.startClock()
         # exit condition
         state = JtagState.RUN_TEST_IDLE
+        return passing
 
     # the legs are passed in the global variable jtag_legs :-/
     def exec_cmd(self, bank, checkvals):
@@ -1425,6 +1434,33 @@ def exec_test(test):
 
     return (hard_errors, DR_errors)
 
+def power_off(bus, do_print=False):
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
+    buf = axp223.i2cdump(do_print)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x31, buf[0x31] | 0x08)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x10, 0)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x12, 0)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x13, 0)
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.OUT)
+
+def power_on(bus):
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
+    # buf = axp223.i2cdump(do_print=False)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x31, 0x26)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x10, 0xBF)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x12, 0x00)
+    bus.write_byte_data(axp223.AXP223_ADDR, 0x13, 0x1A)
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.OUT)
+
+def init_axp223(bus, do_print=False):
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
+    for addr, data in axp223.axp223_cfg.items():
+        data = int(data)
+        if do_print:
+            print(f'*({addr:02x}) = {data:02x}')
+        bus.write_byte_data(axp223.AXP223_ADDR, addr, data)
+    GPIO.setup((TCK_pin, PRG_pin), GPIO.OUT)
+
 def auto_int(x):
     return int(x, 0)
 
@@ -1505,6 +1541,12 @@ def main():
     parser.add_argument(
         "--exec", help="Directly execute the JTAG commands to program a .bin, without creating a .tex file", default=False, action="store_true"
     )
+    parser.add_argument(
+        "--off", help="When set, powers off the AXP223", default=False, action="store_true"
+    )
+    parser.add_argument(
+        "--on", help="When set, powers on the AXP223", default=False, action="store_true"
+    )
 
     args = parser.parse_args()
     if args.debug:
@@ -1553,9 +1595,21 @@ def main():
         GPIO.setup(TDO_IPT_pin, GPIO.IN)
         GPIO.setup(PRG_pin, GPIO.OUT)
         GPIO.setup(DBG_pin, GPIO.OUT)
+        GPIO.setup((AORST_pin, WMS2_pin), GPIO.IN)
 
         GPIO.output(PRG_pin, 1)
         GPIO.output(DBG_pin, 0)
+
+    bus = smbus.SMBus(1)
+    # always sanity check this - I think that does not hurt!
+    init_axp223(bus)
+
+    if args.off:
+        power_off(bus, do_print=True)
+        exit(0)
+    if args.on:
+        power_on(bus)
+        exit(0)
 
     # convert 'bin' to 'tex'
     if ifile.endswith('.bin'):
@@ -1563,6 +1617,38 @@ def main():
             with open(ifile[:-4] + '.tex', 'w') as obin:
                 if args.exec:
                     tex_writer = TexExecutor()
+                    GPIO.setup((AORST_pin, WMS2_pin), GPIO.OUT)
+                    GPIO.output(WMS2_pin, 1)
+                    time.sleep(0.1)
+                    GPIO.output(AORST_pin, 0)
+                    logging.info("Resetting chip...")
+                    time.sleep(2.0)
+                    GPIO.output(AORST_pin, 1)
+                    time.sleep(0.1)
+                    # now check that we can talk to the interface
+                    # !bank 3
+                    # @@@ Read ID: 10102001
+                    # #0, RW JTAG-REG, IR=(5'h02), DR data:(61'h0000000000000000), expected DR data:(61'h0000000010102001)
+                    reset_jtag_group = JtagGroup()
+                    reset_jtag_group.test['legs'] = [[JtagLeg.RS, '0', '0']] # special-case override to insert a reset command
+                    reset_jtag_cp_test = CpTest('Reset JTAG', 3)
+                    reset_jtag_cp_test.append_group(reset_jtag_group)
+                    exec_test(reset_jtag_cp_test)
+                    id_group = JtagGroup()
+                    id_group.test['legs'] = [
+                        [JtagLeg.IR, '00010', ' '],
+                        [JtagLeg.DR, '0000000000000000000000000000000010000000100000010000000000001', ' '],
+                    ]
+                    id_test = CpTest('Read ID', 3)
+                    id_test.append_group(id_group)
+                    (he, de) = exec_test(id_test)
+                    if he != 0 or de != 0:
+                        logging.error("Couldn't put chip into JTAG mode. Aborting!")
+                        GPIO.setup((AORST_pin, WMS2_pin), GPIO.IN)
+                        GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
+                        exit(1)
+                    set_bank(0)
+                    logging.info("Chip is reset, proceeding with burn!")
                 else:
                     tex_writer = TexWriter(obin)
                 binary = ibin.read()
@@ -1674,6 +1760,17 @@ def main():
                         progress.update(rd_ptr)
                 if args.exec and not args.debug:
                     progress.finish()
+                    # disable the test mode
+                    GPIO.setup((AORST_pin, WMS2_pin), GPIO.IN)
+                    # fully disconnect all power
+                    GPIO.setup((PRG_pin, TCK_pin), GPIO.OUT)
+                    GPIO.output(PRG_pin, 0)
+                    GPIO.output(TCK_pin, 0)
+                    power_off(bus)
+                    logging.info("Power cycling...")
+                    time.sleep(5)
+                    init_axp223(bus)
+                    logging.info("Rebooted!")
 
     # assume CP test if a .tex file is specified
     elif ifile.endswith('tex'):
