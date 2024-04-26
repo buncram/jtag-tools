@@ -908,46 +908,123 @@ class TexExecutor():
         reset_jtag_cp_test = CpTest('Reset JTAG', 0)
         reset_jtag_cp_test.append_group(reset_jtag_group)
         exec_test(reset_jtag_cp_test)
+        self.setup_write = [
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
+            (0x0e, 0x0000000000),
+            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)
+            (0x12, 0x0000000000),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
+            (0x0a, 0x0000000001),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
+            (0x26, 0x0000000410),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)
+            (0x0a, 0x0000000000),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
+            (0x26, 0x0000000411),
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
+            (0x1a, 0x0000600080),
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
+            (0x0e, 0x0000000000),
+            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000004)
+            (0x12, 0x0000000004),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0018000000)
+            (0x0a, 0x0018000000),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
+            (0x26, 0x0000000410),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
+            (0x0a, 0x0000000001),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
+            (0x26, 0x0000000411),
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
+            (0x1a, 0x0000600080),
+            # select main array/INFO/redundancy/INFO1 area for write
+            # RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)
+            (0x1e, 0x0000000000),
+            # RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)
+            (0x1e, 0x0000000000),
+            # clear write data buffer
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)
+            (0x1a, 0x0000603480),
+        ]
+        self.setup_checkvals = [None] * len(self.setup_write)
+        self.commit_write = [
+            # User inputs WRITE # of loop=0x0
+            # RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)
+            (0x42, 0x0000000000),
+            # User inputs address and data pattern(ADR_FIX, DATA_FIX, LOOP_0)
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
+            (0x0e, 0x0000000000),
+            # User sets bist_write_status_ip0_en = 0x1
+            # RW JTAG-REG, IR={6'h0c,2'b10}(addr:('h0c)), DR data:(40'h0000000040)
+            (0x32, 0x0000000040),
+            # User issues bist WRITE command
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000605480)
+            (0x1a, 0x0000605480),
+            # Read out bit[6]=bist_write_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)
+        ]
+        self.commit_checkvals = [None] * len(self.commit_write)
+        self.setup_verify = [
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
+            (0x0e, 0x0000000000),
+            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)
+            (0x12, 0x0000000000),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
+            (0x0a, 0x0000000001),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
+            (0x26, 0x0000000410),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)
+            (0x0a, 0x0000000000),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
+            (0x26, 0x0000000411),
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
+            (0x1a, 0x0000600080),
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
+            (0x0e, 0x0000000000),
+            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000004)
+            (0x12, 0x0000000004),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0018000000)
+            (0x0a, 0x0018000000),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
+            (0x26, 0x0000000410),
+            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
+            (0x0a, 0x0000000001),
+            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
+            (0x26, 0x0000000411),
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
+            (0x1a, 0x0000600080),
+            # select main array/INFO/redundancy/INFO1 area for write
+            (0x1e, 0x0000000000),
+        ]
+        self.verify_checkvals = [None] * len(self.setup_verify)
+        self.read_cmd = [
+            # User inputs READ # of loop=0x0
+            # RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)
+            (0x42, 0x0000000000),
+            # User inputs address and data pattern, (data_option needs to be 0x6 = DATA_LATCH to output RRAM DOUT to TDO)
+            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000060)
+            (0x0e, 0x0000000060),
+            # User sets bist_read_status_ip0_en = 0x1
+            # RW JTAG-REG, IR={6'h0c,2'b10}(addr:('h0c)), DR data:(40'h0000000400)
+            (0x32, 0x0000000400),
+            # User issues bist READ command
+            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h000060c880)
+            (0x1a, 0x000060c880),
+        ]
+        self.read_checkvals = [None] * len(self.read_cmd)
+        self.ffi = FFI()
 
     # repeats the IR/DR pair in check_wait_cmds until TDO drops
     def wait_tdo(self, bank, check_wait_cmds):
         global jtag_legs, state, jtag_results_r0, jtag_results_r1
         # confirm that the busy bit is not set (bit 1)
         start_time = time.time()
-        if(bank==BANK_RRAM0 or bank==BANK_RRAMS or bank==BANK_IPT):
-            while (jtag_results_r0[1] & 1) != 0:
-                logging.debug(f"    BIST is still busy, trying again")
-                if time.time() - start_time > TIMEOUT_S:
-                    logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
-                    hard_errors += 1
-                    break
-                # can't point to the reference in check_wait_cmds because the references are destroyed
-                jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
-                jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
-                # reset jtag_results
-                jtag_results_r0 = []
-                # rerun the poll loop
-                while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
-                    jtag_step()
-                while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
-                    jtag_step()
-        elif(bank==BANK_RRAM1):
-            while (jtag_results_r1[1] & 1) != 0:
-                logging.debug(f"    BIST is still busy, trying again")
-                if time.time() - start_time > TIMEOUT_S:
-                    logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
-                    hard_errors += 1
-                    break
-                # can't point to the reference in check_wait_cmds because the references are destroyed
-                jtag_legs.insert(0, [check_wait_cmds[1][0], check_wait_cmds[1][1], check_wait_cmds[1][2]]) # insert the DR
-                jtag_legs.insert(0, [check_wait_cmds[0][0], check_wait_cmds[0][1], check_wait_cmds[0][2]]) # insert the IR
-                # reset jtag_results
-                jtag_results_r1 = []
-                # rerun the poll loop
-                while state == JtagState.TEST_LOGIC_RESET or state == JtagState.RUN_TEST_IDLE:
-                    jtag_step()
-                while state != JtagState.TEST_LOGIC_RESET and state != JtagState.RUN_TEST_IDLE:
-                    jtag_step()
+        while (self.result & 1) != 0:
+            logging.debug(f"    BIST is still busy, trying again")
+            if time.time() - start_time > TIMEOUT_S:
+                logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
+                break
+            self.exec_binary_cmd(bank, check_wait_cmds, [None])
+            time.sleep(100e-6)
 
         jtag_results_r0 = []
         jtag_results_r1 = []
@@ -957,27 +1034,27 @@ class TexExecutor():
         global gpioffi, pins, gpio_pointer
         global jtag_legs, jtag_results_r0, jtag_results_r1
         global keepalive
+        assert(state == JtagState.RUN_TEST_IDLE)
+
         expected_data = None
         # meet the entry condition for binary states
-        ffi = FFI()
-        result_data = ffi.new("uint32_t[]", 2)
-        while state != JtagState.RUN_TEST_IDLE:
-            jtag_step()
+        result_data = self.ffi.new("uint32_t[]", 2)
+        gpioffi.stopClock()
         for (ir, dr) in binary_legs:
             expected_data = checkvals.pop(0)
-            gpioffi.stopClock()
+            # gpioffi.stopClock()
             gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
             gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-            result = result_data[0]
-            result |= (result_data[1] << 32)
-
-            gpioffi.startClock()
+            self.result = result_data[0]
+            self.result |= (result_data[1] << 32)
+            # gpioffi.startClock()
             if expected_data is not None:
-                if result != expected_data:
-                    logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{result:x}")
+                if self.result != expected_data:
+                    logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
                 else:
-                    logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{result:x}")
+                    logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
 
+        gpioffi.startClock()
         # exit condition
         state = JtagState.RUN_TEST_IDLE
 
@@ -1039,68 +1116,10 @@ class TexExecutor():
         return '%0*d' % (40, int(bin(word)[2:]))
 
     def write_rram(self, address, data, bank, region='main'):
-        global jtag_legs
         set_bank(bank)
         logging.debug(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}, bank{bank}')
         # setup the write
-        jbinary_legs = [
-            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
-            (0x0e, 0x0000000000),
-            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000000)
-            (0x12, 0x0000000000),
-            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
-            (0x0a, 0x0000000001),
-            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
-            (0x26, 0x0000000410),
-            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000000)
-            (0x0a, 0x0000000000),
-            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
-            (0x26, 0x0000000411),
-            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
-            (0x1a, 0x0000600080),
-            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
-            (0x0e, 0x0000000000),
-            # RW JTAG-REG, IR={6'h04,2'b10}(addr:('h04)), DR data:(40'h0000000004)
-            (0x12, 0x0000000004),
-            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0018000000)
-            (0x0a, 0x0018000000),
-            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000410)
-            (0x26, 0x0000000410),
-            # RW JTAG-REG, IR={6'h02,2'b10}(addr:('h02)), DR data:(40'h0000000001)
-            (0x0a, 0x0000000001),
-            # RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000411)
-            (0x26, 0x0000000411),
-            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000600080)
-            (0x1a, 0x0000600080),
-            # select main array/INFO/redundancy/INFO1 area for write
-            # RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)
-            (0x1e, 0x0000000000),
-            # RW JTAG-REG, IR={6'h07,2'b10}(addr:('h07)), DR data:(40'h0000000000)
-            (0x1e, 0x0000000000),
-            # clear write data buffer
-            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000603480)
-            (0x1a, 0x0000603480),
-        ]
-        checkvals = [
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ]
-        self.exec_binary_cmd(bank, jbinary_legs, checkvals)
+        self.exec_binary_cmd(bank, self.setup_write, self.setup_checkvals[:])
 
         # write data - dynamically generated scan chain code
         jbinary_legs = []
@@ -1129,7 +1148,7 @@ class TexExecutor():
         checkvals += [check_word]
         # self.write_comment("User selects buffer 4 to load buffer data")
         # self.write_cmd("RW JTAG-REG, IR={6'h09,2'b10}(addr:('h09)), DR data:(40'h0000000414)")
-        jtag_legs += [
+        jbinary_legs += [
             (0b00100110, 0x414),
         ]
         checkvals += [None]
@@ -1138,7 +1157,7 @@ class TexExecutor():
         y_address = (address & 0b11_1110_0000) >> 5
         # self.write_comment(f"User inputs WRITE Y address = 0x{y_address:x} (DR bit[23:16]), bank{bank}")
         # self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{(y_address << 16) | 3:010x})")
-        jtag_legs += [
+        jbinary_legs += [
             (0b00010010, (y_address << 16) | 3),
         ]
         checkvals += [None]
@@ -1158,38 +1177,63 @@ class TexExecutor():
         self.exec_binary_cmd(bank, jbinary_legs, checkvals)
 
         # commit the write
-        jbinary_legs = [
-            # User inputs WRITE # of loop=0x0
-            # RW JTAG-REG, IR={6'h10,2'b10}(addr:('h10)), DR data:(40'h0000000000)
-            (0x42, 0x0000000000),
-            # User inputs address and data pattern(ADR_FIX, DATA_FIX, LOOP_0)
-            # RW JTAG-REG, IR={6'h03,2'b10}(addr:('h03)), DR data:(40'h0000000000)
-            (0x0e, 0x0000000000),
-            # User sets bist_write_status_ip0_en = 0x1
-            # RW JTAG-REG, IR={6'h0c,2'b10}(addr:('h0c)), DR data:(40'h0000000040)
-            (0x32, 0x0000000040),
-            # User issues bist WRITE command
-            # RW JTAG-REG, IR={6'h06,2'b10}(addr:('h06)), DR data:(40'h0000605480)
-            (0x1a, 0x0000605480),
-            # Read out bit[6]=bist_write_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)
-        ]
-        checkvals = [
-            None,
-            None,
-            None,
-            None,
-        ]
-        self.exec_binary_cmd(bank, jbinary_legs, checkvals)
+        self.exec_binary_cmd(bank, self.commit_write, self.commit_checkvals[:])
+        # time for write to complete
+        time.sleep(100e-6)
 
-        jtag_legs = [
-            # RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a)
-            [JtagLeg.IR, '00101110', ' '], [JtagLeg.DR, '0000000000000000000000000000000000001010', ' '],
+        jbinary_check = [
+            (0x2e, 0x000000000a)
         ]
         checkvals = [None]
-        check_wait_cmds = jtag_legs[:] # make a deep copy
-        self.exec_cmd(bank, checkvals)
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
         # wait until write is done
-        self.wait_tdo(bank, check_wait_cmds)
+        self.wait_tdo(bank, jbinary_check)
+
+    def verify_rram(self, address, checkdata, bank, region='main'):
+        x_address = (address & 0b11_1111_1111_1100_0000_0000) >> 10
+        y_address = (address & 0b11_1110_0000) >> 5
+
+        set_bank(bank)
+        logging.debug(f'Verify single word w/ECC ON at address 0x{address:x} bank{bank}')
+        self.exec_binary_cmd(bank, self.setup_verify, self.verify_checkvals[:])
+
+        # read addresses
+        bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
+        # self.write_comment(f"User inputs READ address = 0x{bank_address:x} (X address=0x{x_address:x}, Y address=0x{y_address:x}, bank{bank}) (DR bit[23:0])")
+        # self.write_cmd(f"RW JTAG-REG, IR={{6'h04,2'b10}}(addr:('h04)), DR data:(40'h{bank_address:010x})")
+        jbinary_legs = [
+            (0x12, bank_address),
+        ]
+        checkvals = [None]
+        self.exec_binary_cmd(bank, jbinary_legs, checkvals)
+
+        # issue read command
+        self.exec_binary_cmd(bank, self.read_cmd, self.read_checkvals[:])
+        jbinary_check = [
+                # Read out bit[10]=bist_read_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)
+                # RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a)
+                (0x2e, 0x000000000a),
+        ]
+        checkvals = [None]
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
+        # wait until read is done
+        self.wait_tdo(bank, jbinary_check)
+
+        # get read data
+        jbinary_check = []
+        checkvals = []
+        for rd_ptr in range(0, 16, 4):
+            # self.write_comment(f"set debug_bist_grpsel=0x0, R_BIST_debug_bist_grpdata[31:0] = macro_dout[{(rd_ptr+4) * 8 - 1}:{rd_ptr * 8}]")
+            checkaddr = 0x2000 | (rd_ptr // 4) << 16
+            # self.write_cmd(f"RW JTAG-REG, IR={{6'h14,2'b10}}(addr:('h14)), DR data:(40'h{checkaddr:010x})")
+            jbinary_check += [(0x52, checkaddr)]
+            checkvals += [None]
+            # self.write_comment(f"User outpus R_BIST_debug_bist_grpdata[{(rd_ptr+1) * 8 - 1}:{rd_ptr * 8}] to TDO during DRSHIFT")
+            checkword = int.from_bytes(checkdata[rd_ptr:rd_ptr + 4], 'little')
+            # self.write_cmd(f"RW JTAG-REG, IR={{6'h15,2'b10}}(addr:('h15)), DR data:(40'h0000000000), expected DR data:(40'h{checkword:010x})")
+            jbinary_check += [(0x56, 0)]
+            checkvals += [checkword]
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
 
 def exec_test(test):
     global state
@@ -1623,7 +1667,7 @@ def main():
 
                     tex_writer.write_rram(rd_ptr + offset, reram_data0, BANK_RRAM0, args.region)
                     tex_writer.write_rram(rd_ptr + 16 + offset, reram_data1, BANK_RRAM1, args.region)
-                    if not args.no_verify and not args.exec:
+                    if not args.no_verify: # and not args.exec:
                         tex_writer.verify_rram(rd_ptr + offset, reram_data0, BANK_RRAM0, args.region)
                         tex_writer.verify_rram(rd_ptr + 16 + offset, reram_data1, BANK_RRAM1, args.region)
                     if args.exec and not args.debug:
