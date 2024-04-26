@@ -1643,9 +1643,9 @@ def main():
                     offset = args.offset
                 elif args.xous_region is not None:
                     if args.xous_region == 'loader':
-                        offset = 0x3B_8000 - 0x1000  # subtract 0x1000 for the header
-                    elif args.xous_region == 'kernel':
                         offset = 0x0
+                    elif args.xous_region == 'kernel':
+                        offset = 0x4_0000
                     else:
                         assert(False, "Illegal Xous region specified")
 
