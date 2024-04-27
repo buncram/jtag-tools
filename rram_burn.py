@@ -1622,7 +1622,7 @@ def main():
                     time.sleep(0.1)
                     GPIO.output(AORST_pin, 0)
                     logging.info("Resetting chip...")
-                    time.sleep(2.0)
+                    time.sleep(1.0)
                     GPIO.output(AORST_pin, 1)
                     time.sleep(0.1)
                     # now check that we can talk to the interface
@@ -1760,17 +1760,24 @@ def main():
                         progress.update(rd_ptr)
                 if args.exec and not args.debug:
                     progress.finish()
+                    time.sleep(0.1)
                     # disable the test mode
-                    GPIO.setup((AORST_pin, WMS2_pin), GPIO.IN)
+                    GPIO.setup(WMS2_pin, GPIO.IN)
+                    time.sleep(0.1)
+                    GPIO.output(AORST_pin, 0) # hold reset while power cycling
                     # fully disconnect all power
                     GPIO.setup((PRG_pin, TCK_pin), GPIO.OUT)
                     GPIO.output(PRG_pin, 0)
                     GPIO.output(TCK_pin, 0)
                     power_off(bus)
                     logging.info("Power cycling...")
-                    time.sleep(5)
+                    time.sleep(3.0)
                     init_axp223(bus)
                     logging.info("Rebooted!")
+                    time.sleep(0.5)
+                    GPIO.output(AORST_pin, 1)
+                    time.sleep(0.1)
+                    GPIO.setup(AORST_pin, GPIO.IN)
 
     # assume CP test if a .tex file is specified
     elif ifile.endswith('tex'):
