@@ -171,6 +171,9 @@ if USE_GPIO:
     void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
     uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
     void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
+    void jtag_dr40_to_idle_noret(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
+    void jtag_ir_dr_to_idle(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
+    void jtag_ir_dr_to_idle_noret(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
 
     int gpioInitialise(void);
     void startClock(void);
@@ -1047,15 +1050,17 @@ class TexExecutor():
         # meet the entry condition for binary states
         result_data = self.ffi.new("uint32_t[]", 2)
         gpioffi.stopClock()
-        for (ir, dr) in binary_legs:
-            expected_data = checkvals.pop(0)
+        for index, (ir, dr) in enumerate(binary_legs):
+            expected_data = checkvals[index]
             # gpioffi.stopClock()
-            gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
-            gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-            self.result = result_data[0]
-            self.result |= (result_data[1] << 32)
-            # gpioffi.startClock()
-            if expected_data is not None:
+            if expected_data is None:
+                gpioffi.jtag_ir_dr_to_idle_noret(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                self.result = 0
+            else:
+                gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                self.result = result_data[0]
+                self.result |= (result_data[1] << 32)
+                # gpioffi.startClock()
                 if self.result != expected_data:
                     logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
                     passing = False
@@ -1063,6 +1068,7 @@ class TexExecutor():
                     logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
 
         gpioffi.startClock()
+        checkvals.clear()
         # exit condition
         state = JtagState.RUN_TEST_IDLE
         return passing

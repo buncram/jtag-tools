@@ -651,41 +651,639 @@ uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_
 /// 32 bit LSB is in dr_io[0]
 /// 8 bit MSB is in dr_io[1]
 void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
-   uint32_t dr_io[2] = {dr_lsb, dr_msb};
+   uint32_t pinshift = 0;
+   if (bank) {
+      pinshift = (1 << pins.tdo_r1);
+   } else {
+      pinshift = (1 << pins.tdo_r0);
+   }
+   ret_data[0] = 0;
+   ret_data[1] = 0;
    // select DR-scan -> capture
    jtag_pins_no_tdo(0, 0, pins, gpio);
    // capture -> shift-DR
    jtag_pins_no_tdo(0, 0, pins, gpio);
-   // shift loop
-   uint32_t limit = 32;
-   uint32_t ret = 0;
-   for (uint32_t j = 0; j < 2; j++) {
-      uint32_t dr = dr_io[j];
-      if (j == 0) {
-         limit = 32;
-      } else {
-         limit = 8;
-      }
-      for (uint32_t i = 0; i < limit; i++) {
-         if (!((i == 7) && (j == 1))) {
-            jtag_pins_no_tdo(dr & 1, 0, pins, gpio);
-         } else {
-            // last item gets TMS = 1
-            jtag_pins_no_tdo(dr & 1, 1, pins, gpio);
-         }
-         dr >>= 1;
-         ret >>= 1;
-         if (bank) {
-            ret |= (GPIO_LVL & (1 << pins.tdo_r1)) ? 0x80000000 : 0;
-         } else {
-            ret |= (GPIO_LVL & (1 << pins.tdo_r0)) ? 0x80000000 : 0;
-         }
-      }
-      ret_data[j] = ret;
-      ret = 0;
-   }
+   // shift loop, unrolled
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 1, pins, gpio);
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
    // Exit1 -> Update-DR
    jtag_pins_no_tdo(0, 1, pins, gpio);
    // Update-DR -> Idle
    jtag_pins_no_tdo(0, 0, pins, gpio);
+}
+
+void jtag_dr40_to_idle_noret(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   // select DR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-DR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop, unrolled
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 1, pins, gpio);
+
+   // Exit1 -> Update-DR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-DR -> Idle
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   // return dummy data
+   ret_data[0] = 0;
+   ret_data[0] = 1;
+}
+
+/// 40-bit DR, fixed-width register shift
+/// Assumes entry from DR-scan
+/// Leaves in Idle state
+/// 32 bit LSB is in dr_io[0]
+/// 8 bit MSB is in dr_io[1]
+void jtag_ir_dr_to_idle(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   uint32_t pinshift = 0;
+   if (bank) {
+      pinshift = (1 << pins.tdo_r1);
+   } else {
+      pinshift = (1 << pins.tdo_r0);
+   }
+
+   // idle -> select IR-scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // select IR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-IR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 1, pins, gpio);
+   ir >>= 1;
+   // Exit1 -> Update-IR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-IR -> DR-Scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+
+   // drop TMS in case of spurious clock
+   if(pins.tms_r0 > 0) GPIO_CLR = 1 << pins.tms_r0;
+   if(pins.tms_r1 > 0) GPIO_CLR = 1 << pins.tms_r1;
+
+   ret_data[0] = 0;
+   ret_data[1] = 0;
+   // select DR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-DR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop, unrolled
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   ret_data[0] >>= 1;
+   ret_data[0] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+   jtag_pins_no_tdo(dr_msb & 1, 1, pins, gpio);
+   ret_data[1] >>= 1;
+   ret_data[1] |= (GPIO_LVL & pinshift) ? 0x80000000 : 0;
+
+   // Exit1 -> Update-DR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-DR -> Idle
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+}
+
+void jtag_ir_dr_to_idle_noret(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   // idle -> select IR-scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // select IR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-IR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 0, pins, gpio);
+   ir >>= 1;
+   jtag_pins_no_tdo(ir & 1, 1, pins, gpio);
+   ir >>= 1;
+   // Exit1 -> Update-IR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-IR -> DR-Scan
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+
+   // drop TMS in case of spurious clock
+   if(pins.tms_r0 > 0) GPIO_CLR = 1 << pins.tms_r0;
+   if(pins.tms_r1 > 0) GPIO_CLR = 1 << pins.tms_r1;
+
+   // select DR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-DR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop, unrolled
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+   dr_lsb >>= 1;
+   jtag_pins_no_tdo(dr_lsb & 1, 0, pins, gpio);
+
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 0, pins, gpio);
+   dr_msb >>= 1;
+   jtag_pins_no_tdo(dr_msb & 1, 1, pins, gpio);
+
+   // Exit1 -> Update-DR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-DR -> Idle
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   // return dummy data
+   ret_data[0] = 0;
+   ret_data[0] = 1;
 }
