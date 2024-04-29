@@ -159,6 +159,8 @@ static volatile uint32_t  *clkReg  = MAP_FAILED;
 #define PI_ALT4   3
 #define PI_ALT5   2
 
+#define TCK_CYCLES 150
+
 void gpioSetMode(unsigned gpio, unsigned mode)
 {
    int reg, shift;
@@ -482,7 +484,7 @@ char jtag_pins(int tdi, int tms, pindefs pins, volatile uint32_t *gpio) {
 void jtag_cycle_clk(pindefs pins, volatile uint32_t *gpio, int cycles) {
 
   // struct timespec start, current = {0};
-  volatile uint16_t tiks = 5;
+  volatile uint16_t tiks = 4;
 
   for(int i = 0; i < cycles; i++){
 
@@ -494,7 +496,7 @@ void jtag_cycle_clk(pindefs pins, volatile uint32_t *gpio, int cycles) {
 
     GPIO_SET = 1 << pins.tck;
 
-    while(tiks < 20){
+    while(tiks < 4){
       tiks++;
     }
 
@@ -645,12 +647,54 @@ uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_
    return ret;
 }
 
+void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+   uint32_t dr_io[2] = {dr_lsb, dr_msb};
+   // select DR-scan -> capture
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // capture -> shift-DR
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+   // shift loop
+   uint32_t limit = 32;
+   uint32_t ret = 0;
+   for (uint32_t j = 0; j < 2; j++) {
+      uint32_t dr = dr_io[j];
+      if (j == 0) {
+         limit = 32;
+      } else {
+         limit = 8;
+      }
+      for (uint32_t i = 0; i < limit; i++) {
+         if (!((i == 7) && (j == 1))) {
+            jtag_pins_no_tdo(dr & 1, 0, pins, gpio);
+         } else {
+            // last item gets TMS = 1
+            jtag_pins_no_tdo(dr & 1, 1, pins, gpio);
+         }
+         dr >>= 1;
+         ret >>= 1;
+         if (bank) {
+            ret |= (GPIO_LVL & (1 << pins.tdo_r1)) ? 0x80000000 : 0;
+         } else {
+            ret |= (GPIO_LVL & (1 << pins.tdo_r0)) ? 0x80000000 : 0;
+         }
+      }
+      ret_data[j] = ret;
+      ret = 0;
+   }
+   // Exit1 -> Update-DR
+   jtag_pins_no_tdo(0, 1, pins, gpio);
+   // Update-DR -> Idle
+   jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   jtag_cycle_clk(pins, gpio, TCK_CYCLES);
+}
+
 /// 40-bit DR, fixed-width register shift
 /// Assumes entry from DR-scan
 /// Leaves in Idle state
 /// 32 bit LSB is in dr_io[0]
 /// 8 bit MSB is in dr_io[1]
-void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
+void jtag_dr40_to_idle_unrolled(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
    uint32_t pinshift = 0;
    if (bank) {
       pinshift = (1 << pins.tdo_r1);
@@ -830,6 +874,8 @@ void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pin
    jtag_pins_no_tdo(0, 1, pins, gpio);
    // Update-DR -> Idle
    jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   jtag_cycle_clk(pins, gpio, TCK_CYCLES);
 }
 
 void jtag_dr40_to_idle_noret(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
@@ -931,6 +977,8 @@ void jtag_dr40_to_idle_noret(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_dat
    // return dummy data
    ret_data[0] = 0;
    ret_data[0] = 1;
+
+   jtag_cycle_clk(pins, gpio, TCK_CYCLES);
 }
 
 /// 40-bit DR, fixed-width register shift
@@ -1152,6 +1200,8 @@ void jtag_ir_dr_to_idle(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *
    jtag_pins_no_tdo(0, 1, pins, gpio);
    // Update-DR -> Idle
    jtag_pins_no_tdo(0, 0, pins, gpio);
+
+   jtag_cycle_clk(pins, gpio, TCK_CYCLES);
 }
 
 void jtag_ir_dr_to_idle_noret(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank) {
@@ -1286,4 +1336,6 @@ void jtag_ir_dr_to_idle_noret(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint
    // return dummy data
    ret_data[0] = 0;
    ret_data[0] = 1;
+
+   jtag_cycle_clk(pins, gpio, TCK_CYCLES);
 }

@@ -1,23 +1,5 @@
 #first release march 4th - 0.0.1
 #!/usr/bin/python3
-
-# speed notes
-# - 227094 bytes burned in 15s is the fastest seen with full unrolling & ir/d chaining, but it's unstable
-# - 227094 bytes burned with _noret opt turned off finishes in 17s - 12% slower
-#
-# The optimization that seems to be failing is the "_noret" optimization -- this causes the JTAG clock
-# to toggle as fast as it can without trying to read back the data, for routines that don't specify a check
-# value. The possibilities for why this breaks are:
-#  - Maybe we hit the minimum cycle time of the RRAM itself (so the extra time is essential)
-#  - There is some write combining going on to the GPIO that is only broken by the interleaved read (this has been
-#    observed on some models of RPi GPIO).
-#  - The setup/hold timing of the interface is being violated
-#
-# Some simple experiments were done to try and poke the last two theories, and both turned out negative.
-# In particular, a dummy read was inserted in the _noret FFI, and it had no effect; and, some extra cycles
-# After TCK high were inserted, and no effect. However, this should be investigated again later on when
-# I have more time to optimize. This was done in-line while debugging something else, so I am a bit distracted.
-
 import os
 
 if os.name == 'posix' and os.uname()[1] == 'raspberrypi':
@@ -189,7 +171,6 @@ if USE_GPIO:
     void jtag_prog_rbk(char *bitstream, pindefs pins, volatile uint32_t *gpio, char *readback);
     uint8_t jtag_ir8_to_dr(uint8_t ir, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
     void jtag_dr40_to_idle(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
-    void jtag_dr40_to_idle_unrolled(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
     void jtag_dr40_to_idle_noret(uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
     void jtag_ir_dr_to_idle(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
     void jtag_ir_dr_to_idle_noret(uint8_t ir, uint32_t dr_lsb, uint32_t dr_msb, uint32_t *ret_data, pindefs pins, volatile uint32_t *gpio, uint8_t bank);
@@ -1051,76 +1032,42 @@ class TexExecutor():
             if time.time() - start_time > TIMEOUT_S:
                 logging.error("    TIMEOUT FAILURE waiting for BIST to go idle. Test failed.")
                 break
-            self.exec_binary_cmd(bank, check_wait_cmds, [None], inner_clock=True)
+            self.exec_binary_cmd(bank, check_wait_cmds, [None])
             time.sleep(100e-6)
 
         jtag_results_r0 = []
         jtag_results_r1 = []
 
-    def exec_binary_cmd(self, bank, binary_legs, checkvals, inner_clock=False):
+    def exec_binary_cmd(self, bank, binary_legs, checkvals):
         global state
         global gpioffi, pins, gpio_pointer
         global jtag_legs, jtag_results_r0, jtag_results_r1
         global keepalive
         assert(state == JtagState.RUN_TEST_IDLE)
 
-        inner_clock = False # force it false
-
         passing = True
         expected_data = None
         # meet the entry condition for binary states
         result_data = self.ffi.new("uint32_t[]", 2)
-        if not inner_clock:
-            gpioffi.stopClock()
-        if inner_clock:
-            for index, (ir, dr) in enumerate(binary_legs):
-                expected_data = checkvals[index]
-                gpioffi.stopClock()
-                gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
-                gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                gpioffi.startClock()
-                if expected_data is not None:
-                    self.result = result_data[0]
-                    self.result |= (result_data[1] << 32)
-                    if self.result != expected_data:
-                        logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
-                        passing = False
-                    else:
-                        logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
+        gpioffi.stopClock()
+        for index, (ir, dr) in enumerate(binary_legs):
+            expected_data = checkvals[index]
+            # gpioffi.stopClock()
+            if expected_data is None:
+                gpioffi.jtag_ir_dr_to_idle_noret(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                self.result = 0
+            else:
+                gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                self.result = result_data[0]
+                self.result |= (result_data[1] << 32)
+                # gpioffi.startClock()
+                if self.result != expected_data:
+                    logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
+                    passing = False
                 else:
-                    self.result = 0
-        else:
-            for index, (ir, dr) in enumerate(binary_legs):
-                expected_data = checkvals[index]
-                gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
-                gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                if expected_data is not None:
-                    self.result = result_data[0]
-                    self.result |= (result_data[1] << 32)
-                    if self.result != expected_data:
-                        logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
-                        passing = False
-                    else:
-                        logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
-                else:
-                    self.result = 0
-        if False:
-            for index, (ir, dr) in enumerate(binary_legs):
-                expected_data = checkvals[index]
-                if expected_data is None:
-                    gpioffi.jtag_ir_dr_to_idle_noret(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                    self.result = 0
-                else:
-                    gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                    self.result = result_data[0]
-                    self.result |= (result_data[1] << 32)
-                    if self.result != expected_data:
-                        logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
-                        passing = False
-                    else:
-                        logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
-        if not inner_clock:
-            gpioffi.startClock()
+                    logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
+
+        gpioffi.startClock()
         checkvals.clear()
         # exit condition
         state = JtagState.RUN_TEST_IDLE
@@ -1187,7 +1134,7 @@ class TexExecutor():
         set_bank(bank)
         logging.debug(f'Write single word {int.from_bytes(data, "little"):032x} w/ECC ON at address 0x{address:x}, bank{bank}')
         # setup the write
-        self.exec_binary_cmd(bank, self.setup_write, self.setup_checkvals[:], inner_clock=True)
+        self.exec_binary_cmd(bank, self.setup_write, self.setup_checkvals[:])
 
         # write data - dynamically generated scan chain code
         jbinary_legs = []
@@ -1242,10 +1189,10 @@ class TexExecutor():
             (0b00010010, x_address),
         ]
         checkvals += [None]
-        self.exec_binary_cmd(bank, jbinary_legs, checkvals, inner_clock=False)
+        self.exec_binary_cmd(bank, jbinary_legs, checkvals)
 
         # commit the write
-        self.exec_binary_cmd(bank, self.commit_write, self.commit_checkvals[:], inner_clock=True)
+        self.exec_binary_cmd(bank, self.commit_write, self.commit_checkvals[:])
         # time for write to complete
         time.sleep(100e-6)
 
@@ -1253,7 +1200,7 @@ class TexExecutor():
             (0x2e, 0x000000000a)
         ]
         checkvals = [None]
-        self.exec_binary_cmd(bank, jbinary_check, checkvals, inner_clock=True)
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
         # wait until write is done
         self.wait_tdo(bank, jbinary_check)
 
@@ -1263,7 +1210,7 @@ class TexExecutor():
 
         set_bank(bank)
         logging.debug(f'Verify single word w/ECC ON at address 0x{address:x} bank{bank}')
-        self.exec_binary_cmd(bank, self.setup_verify, self.verify_checkvals[:], inner_clock=True)
+        self.exec_binary_cmd(bank, self.setup_verify, self.verify_checkvals[:])
 
         # read addresses
         bank_address = (x_address & 0xFFFF) | ((y_address & 0xFF) << 16)
@@ -1273,17 +1220,17 @@ class TexExecutor():
             (0x12, bank_address),
         ]
         checkvals = [None]
-        self.exec_binary_cmd(bank, jbinary_legs, checkvals, inner_clock=True)
+        self.exec_binary_cmd(bank, jbinary_legs, checkvals)
 
         # issue read command
-        self.exec_binary_cmd(bank, self.read_cmd, self.read_checkvals[:], inner_clock=True)
+        self.exec_binary_cmd(bank, self.read_cmd, self.read_checkvals[:])
         jbinary_check = [
                 # Read out bit[10]=bist_read_status_ip0 (1: fail, 0: pass), bit[0] = bist_busy (1: busy, 0: idle)
                 # RW JTAG-REG, IR={6'h0b,2'b10}(addr:('h0b)), DR data:(40'h000000000a)
                 (0x2e, 0x000000000a),
         ]
         checkvals = [None]
-        self.exec_binary_cmd(bank, jbinary_check, checkvals, inner_clock=True)
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
         # wait until read is done
         self.wait_tdo(bank, jbinary_check)
 
@@ -1301,7 +1248,7 @@ class TexExecutor():
             # self.write_cmd(f"RW JTAG-REG, IR={{6'h15,2'b10}}(addr:('h15)), DR data:(40'h0000000000), expected DR data:(40'h{checkword:010x})")
             jbinary_check += [(0x56, 0)]
             checkvals += [checkword]
-        self.exec_binary_cmd(bank, jbinary_check, checkvals, inner_clock=False)
+        self.exec_binary_cmd(bank, jbinary_check, checkvals)
 
 def exec_test(test):
     global state
