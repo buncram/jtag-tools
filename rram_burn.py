@@ -2,7 +2,8 @@
 #!/usr/bin/python3
 
 # speed notes
-# 227094 bytes burned in 15s is the fastest seen with full unrolling & ir/d chaining, but it's unstable
+# - 227094 bytes burned in 15s is the fastest seen with full unrolling & ir/d chaining, but it's unstable
+# - 227094 bytes burned with _noret opt turned off finishes in 17s - 12% slower
 #
 # The optimization that seems to be failing is the "_noret" optimization -- this causes the JTAG clock
 # to toggle as fast as it can without trying to read back the data, for routines that don't specify a check
