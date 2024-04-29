@@ -3,6 +3,19 @@
 
 # speed notes
 # 227094 bytes burned in 15s is the fastest seen with full unrolling & ir/d chaining, but it's unstable
+#
+# The optimization that seems to be failing is the "_noret" optimization -- this causes the JTAG clock
+# to toggle as fast as it can without trying to read back the data, for routines that don't specify a check
+# value. The possibilities for why this breaks are:
+#  - Maybe we hit the minimum cycle time of the RRAM itself (so the extra time is essential)
+#  - There is some write combining going on to the GPIO that is only broken by the interleaved read (this has been
+#    observed on some models of RPi GPIO).
+#  - The setup/hold timing of the interface is being violated
+#
+# Some simple experiments were done to try and poke the last two theories, and both turned out negative.
+# In particular, a dummy read was inserted in the _noret FFI, and it had no effect; and, some extra cycles
+# After TCK high were inserted, and no effect. However, this should be investigated again later on when
+# I have more time to optimize. This was done in-line while debugging something else, so I am a bit distracted.
 
 import os
 
@@ -1054,20 +1067,21 @@ class TexExecutor():
         # meet the entry condition for binary states
         result_data = self.ffi.new("uint32_t[]", 2)
         gpioffi.stopClock()
-        for index, (ir, dr) in enumerate(binary_legs):
-            expected_data = checkvals[index]
-            gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
-            gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-            self.result = result_data[0]
-            self.result |= (result_data[1] << 32)
-            if expected_data is not None:
-                if self.result != expected_data:
-                    logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
-                    passing = False
+        if True:
+            for index, (ir, dr) in enumerate(binary_legs):
+                expected_data = checkvals[index]
+                gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                if expected_data is not None:
+                    self.result = result_data[0]
+                    self.result |= (result_data[1] << 32)
+                    if self.result != expected_data:
+                        logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
+                        passing = False
+                    else:
+                        logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
                 else:
-                    logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
-
-        if False:
+                    self.result = 0
+        else:
             for index, (ir, dr) in enumerate(binary_legs):
                 expected_data = checkvals[index]
                 if expected_data is None:
