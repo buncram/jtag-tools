@@ -1,5 +1,9 @@
 #first release march 4th - 0.0.1
 #!/usr/bin/python3
+
+# speed notes
+# 227094 bytes burned in 15s is the fastest seen with full unrolling & ir/d chaining, but it's unstable
+
 import os
 
 if os.name == 'posix' and os.uname()[1] == 'raspberrypi':
@@ -1052,20 +1056,32 @@ class TexExecutor():
         gpioffi.stopClock()
         for index, (ir, dr) in enumerate(binary_legs):
             expected_data = checkvals[index]
-            # gpioffi.stopClock()
-            if expected_data is None:
-                gpioffi.jtag_ir_dr_to_idle_noret(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                self.result = 0
-            else:
-                gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
-                self.result = result_data[0]
-                self.result |= (result_data[1] << 32)
-                # gpioffi.startClock()
+            gpioffi.jtag_ir8_to_dr(ir, pins[0], gpio_pointer, bank)
+            gpioffi.jtag_dr40_to_idle(dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+            self.result = result_data[0]
+            self.result |= (result_data[1] << 32)
+            if expected_data is not None:
                 if self.result != expected_data:
                     logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
                     passing = False
                 else:
                     logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
+
+        if False:
+            for index, (ir, dr) in enumerate(binary_legs):
+                expected_data = checkvals[index]
+                if expected_data is None:
+                    gpioffi.jtag_ir_dr_to_idle_noret(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                    self.result = 0
+                else:
+                    gpioffi.jtag_ir_dr_to_idle(ir, dr & 0xFFFF_FFFF, (dr >> 32) & 0xFF, result_data, pins[0], gpio_pointer, bank)
+                    self.result = result_data[0]
+                    self.result |= (result_data[1] << 32)
+                    if self.result != expected_data:
+                        logging.error(f"    Failed! Expected: 0x{expected_data:x} != result: 0x{self.result:x}")
+                        passing = False
+                    else:
+                        logging.debug(f"    Passed! Expected: 0x{expected_data:x} = result: 0x{self.result:x}")
 
         gpioffi.startClock()
         checkvals.clear()
