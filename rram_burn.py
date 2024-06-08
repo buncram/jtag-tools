@@ -1450,13 +1450,21 @@ def power_off(bus, do_print=False):
     GPIO.setup((TCK_pin, PRG_pin), GPIO.OUT)
 
 def power_on(bus):
+    GPIO.setup(AORST_pin, GPIO.OUT)
+    GPIO.output(AORST_pin, 0)
+    time.sleep(0.2)
     GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
     # buf = axp223.i2cdump(do_print=False)
-    bus.write_byte_data(axp223.AXP223_ADDR, 0x31, 0x26)
-    bus.write_byte_data(axp223.AXP223_ADDR, 0x10, 0xBF)
-    bus.write_byte_data(axp223.AXP223_ADDR, 0x12, 0x00)
-    bus.write_byte_data(axp223.AXP223_ADDR, 0x13, 0x1A)
+    init_axp223(bus)
+    #bus.write_byte_data(axp223.AXP223_ADDR, 0x31, 0x26)
+    #bus.write_byte_data(axp223.AXP223_ADDR, 0x10, 0xBF)
+    #bus.write_byte_data(axp223.AXP223_ADDR, 0x12, 0x00)
+    #bus.write_byte_data(axp223.AXP223_ADDR, 0x13, 0x1A)
     GPIO.setup((TCK_pin, PRG_pin), GPIO.OUT)
+    time.sleep(0.2)
+    GPIO.output(AORST_pin, 1)
+    time.sleep(0.1)
+    GPIO.setup(AORST_pin, GPIO.IN)
 
 def init_axp223(bus, do_print=False):
     GPIO.setup((TCK_pin, PRG_pin), GPIO.IN)
